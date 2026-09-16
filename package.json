@@ -21,8 +21,8 @@
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "db:generate": "drizzle-kit generate",
     "icon": "node scripts/build-icons.mjs",
-    "package": "electron-vite build && electron-builder --win",
-    "package:dir": "electron-vite build && electron-builder --win --dir"
+    "package": "electron-vite build && electron-builder --win && node scripts/apply-icon.mjs",
+    "package:dir": "electron-vite build && electron-builder --win --dir && node scripts/apply-icon.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",

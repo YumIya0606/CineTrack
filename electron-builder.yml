@@ -31,7 +31,12 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: resources/icon.png
+  icon: resources/icon.ico
+  # rcedit (icon + version metadata) is bundled in the winCodeSign toolkit,
+  # whose archive holds two macOS symlinks that can't be extracted without the
+  # Windows "Create symbolic links" privilege. Skip that step here and re-apply
+  # the icon post-build via scripts/apply-icon.mjs (vendored rcedit).
+  signAndEditExecutable: false
   artifactName: CineTrack-Setup-${version}.${ext}
   publisherName: CineTrack
 
@@ -43,8 +48,8 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: CineTrack
   uninstallDisplayName: CineTrack
-  installerIcon: resources/icon.png
-  uninstallerIcon: resources/icon.png
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
   deleteAppDataOnUninstall: false
 
 # Auto-update via GitHub Releases (opt-in; only used if you publish there)
