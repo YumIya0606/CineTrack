@@ -1,0 +1,55 @@
+appId: com.cinetrack.app
+productName: CineTrack
+copyright: Copyright © 2026 CineTrack
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - out/**/*
+  - "!out/renderer/**/*.{map}"
+  - package.json
+
+# Native module rebuild for the target Electron version
+npmRebuild: false
+
+asar: true
+asarUnpack:
+  - resources/**
+  - out/main/**
+
+# Bundle the Drizzle migrations + seed so a packaged app can bootstrap its DB
+extraResources:
+  - from: drizzle
+    to: drizzle
+  - from: resources/icon.png
+    to: icon.png
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.png
+  artifactName: CineTrack-Setup-${version}.${ext}
+  publisherName: CineTrack
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: CineTrack
+  uninstallDisplayName: CineTrack
+  installerIcon: resources/icon.png
+  uninstallerIcon: resources/icon.png
+  deleteAppDataOnUninstall: false
+
+# Auto-update via GitHub Releases (opt-in; only used if you publish there)
+publish:
+  provider: github
+  owner: cinetrack
+  repo: cinetrack
+  releaseType: release

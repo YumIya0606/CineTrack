@@ -1,0 +1,195 @@
+@import 'tailwindcss';
+
+@theme {
+  /* CineTrack dark theme — cinema marquee gold on deep charcoal */
+  --color-canvas: #0b0c0f;
+  --color-surface: #12141a;
+  --color-surface-2: #181b22;
+  --color-surface-3: #1f232c;
+  --color-line: #262b35;
+  --color-line-soft: #1d2028;
+
+  --color-ink: #ececf1;
+  --color-ink-soft: #a8abbd;
+  --color-ink-dim: #6d7186;
+
+  --color-gold: #f5b544;
+  --color-gold-soft: #f8c97d;
+  --color-gold-dim: #8a6420;
+  --color-crimson: #e84855;
+  --color-crimson-soft: #f1777f;
+  --color-emerald: #3ecf8e;
+  --color-azure: #5b8def;
+
+  --radius-card: 14px;
+  --radius-lg: 12px;
+  --radius-md: 9px;
+  --radius-sm: 6px;
+
+  --shadow-card: 0 10px 30px -12px rgba(0, 0, 0, 0.75);
+  --shadow-glow: 0 0 24px -6px rgba(245, 181, 68, 0.35);
+
+  --font-display: 'Sora', system-ui, sans-serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  /* Bundled locally so the UI never depends on a font CDN (CSP-safe).
+     Vite resolves + hashes these at build time. */
+  @font-face {
+    font-family: 'Sora';
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+    src: url('../assets/fonts/Sora-Bold.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Inter';
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+    src: url('../assets/fonts/Inter-Regular.ttf') format('truetype');
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-surface-3);
+    border-radius: 999px;
+    border: 2px solid var(--color-canvas);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-line);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Select dropdowns — keep them on-theme everywhere */
+  select {
+    color-scheme: dark;
+  }
+  select option {
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+
+  /* Number inputs — hide the spinners that clash with the dark theme */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(18, 20, 26, 0.78);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .glass-strong {
+    background: rgba(11, 12, 15, 0.92);
+    backdrop-filter: blur(28px) saturate(1.5);
+    -webkit-backdrop-filter: blur(28px) saturate(1.5);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+  }
+
+  .text-gradient-gold {
+    background: linear-gradient(135deg, var(--color-gold-soft), var(--color-gold) 55%, #b97f14);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  .ring-gold {
+    box-shadow:
+      0 0 0 1px rgba(245, 181, 68, 0.45),
+      0 0 18px -4px rgba(245, 181, 68, 0.4);
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* The perspective stage that lets individual elements tilt in 3D. */
+  .tilt-stage {
+    perspective: 900px;
+    transform-style: preserve-3d;
+  }
+
+  /* Slow drift for the aurora backdrop blobs. */
+  @keyframes drift {
+    0% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    33% {
+      transform: translate3d(4%, 6%, 0) scale(1.08);
+    }
+    66% {
+      transform: translate3d(-3%, -4%, 0) scale(0.96);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  /* Conic "spotlight" sweep used on the loading curtain + focus rings. */
+  @keyframes sweep {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}

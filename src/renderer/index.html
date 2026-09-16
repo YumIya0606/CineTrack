@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CineTrack</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' https://image.tmdb.org data: blob:; connect-src 'self' https://api.themoviedb.org https://image.tmdb.org; font-src 'self' data: blob:; frame-src https://www.youtube-nocookie.com https://www.youtube.com; worker-src 'self' blob:"
+    />
+  </head>
+  <body class="bg-canvas text-ink antialiased select-none overflow-hidden">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
