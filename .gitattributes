@@ -1,0 +1,14 @@
+# Normalise line endings on checkin, and keep LF in the working tree.
+* text=auto eol=lf
+
+# Windows-native binaries must stay binary
+*.ico binary
+*.png binary
+*.jpg binary
+*.exe binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+
+# Lockfiles are generated; keep them as-is.
+package-lock.json -diff linguist-generated=true

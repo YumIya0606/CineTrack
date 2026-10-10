@@ -26,6 +26,11 @@ Thumbs.db
 
 # Local TMDB credentials (never commit)
 cinetrack.key.json
+*.cbk
+*.pre-restore-*
+
+# Screenshot harness scratch profile (contains a throwaway database)
+.screenshot-profile/
 
 # Session exports (contain chat history + credentials — keep local)
 cinetrack-3d-*.json
@@ -33,5 +38,7 @@ cinetrack-3d-*.json
 # Database
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 *.sqlite
 data/

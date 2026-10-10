@@ -1,31 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1a1d25"/>
-      <stop offset="100%" stop-color="#0b0c0f"/>
+      <stop offset="0%" stop-color="#222631"/>
+      <stop offset="52%" stop-color="#12141b"/>
+      <stop offset="100%" stop-color="#07080b"/>
     </linearGradient>
     <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f8c97d"/>
-      <stop offset="55%" stop-color="#f5b544"/>
+      <stop offset="0%" stop-color="#ffe1a6"/>
+      <stop offset="40%" stop-color="#f5b544"/>
       <stop offset="100%" stop-color="#b97f14"/>
     </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.4" r="0.62">
+      <stop offset="0%" stop-color="#f5b544" stop-opacity="0.3"/>
+      <stop offset="68%" stop-color="#f5b544" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#f5b544" stop-opacity="0"/>
+    </radialGradient>
   </defs>
+
+  <!-- Tile -->
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <!-- Play triangle fused with aperture blades -->
-  <path d="M196 148 L196 364 L372 256 Z" fill="url(#gold)"/>
-  <!-- Aperture ring -->
-  <circle cx="256" cy="256" r="132" fill="none" stroke="url(#gold)" stroke-width="10" opacity="0.45"/>
-  <!-- Film sprocket marks -->
-  <g fill="#f5b544" opacity="0.55">
-    <rect x="56" y="128" width="26" height="14" rx="4"/>
-    <rect x="56" y="192" width="26" height="14" rx="4"/>
-    <rect x="56" y="256" width="26" height="14" rx="4"/>
-    <rect x="56" y="320" width="26" height="14" rx="4"/>
-    <rect x="56" y="384" width="26" height="14" rx="4"/>
-    <rect x="430" y="128" width="26" height="14" rx="4"/>
-    <rect x="430" y="192" width="26" height="14" rx="4"/>
-    <rect x="430" y="256" width="26" height="14" rx="4"/>
-    <rect x="430" y="320" width="26" height="14" rx="4"/>
-    <rect x="430" y="384" width="26" height="14" rx="4"/>
+  <rect width="512" height="512" rx="112" fill="url(#glow)"/>
+
+  <!-- Tracking orbit: a cinema aperture ring tilted in perspective -->
+  <g transform="rotate(-22 256 256)">
+    <ellipse cx="256" cy="256" rx="180" ry="78" fill="none" stroke="url(#gold)" stroke-width="9" opacity="0.5"/>
   </g>
+
+  <!-- Play triangle, the cinema mark -->
+  <path d="M170 148 L170 364 L382 256 Z" fill="url(#gold)" stroke="url(#gold)" stroke-width="13" stroke-linejoin="round"/>
+
+  <!-- The tracked title riding the orbit -->
+  <circle cx="423" cy="218" r="34" fill="#f5b544" opacity="0.22"/>
+  <circle cx="423" cy="218" r="16" fill="#ffe1a6"/>
+
+  <!-- Sparkle -->
+  <path d="M124 124 L131 147 L154 154 L131 161 L124 184 L117 161 L94 154 L117 147 Z" fill="#f5b544" opacity="0.6"/>
 </svg>
