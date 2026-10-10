@@ -65,7 +65,8 @@ function bootstrapSchema(raw: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, catalog_id INTEGER NOT NULL REFERENCES catalog(id) ON DELETE CASCADE,
       status TEXT NOT NULL, rating INTEGER, notes TEXT, added_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       watched_at TEXT, episodes_watched INTEGER NOT NULL DEFAULT 0, episodes_total INTEGER, seasons_total INTEGER,
-      play_count INTEGER NOT NULL DEFAULT 1
+      play_count INTEGER NOT NULL DEFAULT 1,
+      status_override INTEGER NOT NULL DEFAULT false, episodes_runtime INTEGER
     );
     CREATE TABLE IF NOT EXISTS episode_log (
       library_id INTEGER NOT NULL REFERENCES library(id) ON DELETE CASCADE,
@@ -73,6 +74,12 @@ function bootstrapSchema(raw: Database.Database): void {
       PRIMARY KEY (library_id, season, episode)
     );
     CREATE TABLE IF NOT EXISTS settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
+    CREATE TABLE IF NOT EXISTS status_defs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, label TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT 'slate', position INTEGER NOT NULL DEFAULT 0,
+      counts_toward_watch_time INTEGER NOT NULL DEFAULT false,
+      derivable INTEGER NOT NULL DEFAULT false, is_system INTEGER NOT NULL DEFAULT false
+    );
     CREATE TABLE IF NOT EXISTS people (
       id INTEGER PRIMARY KEY AUTOINCREMENT, catalog_id INTEGER NOT NULL REFERENCES catalog(id) ON DELETE CASCADE,
       name TEXT NOT NULL, role TEXT NOT NULL, character TEXT, tmdb_person_id INTEGER

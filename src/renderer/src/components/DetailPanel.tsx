@@ -1,28 +1,23 @@
 import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useUI, useData, useCollections } from '../store'
+import { useUI, useData, useCollections, useStatuses } from '../store'
 import { cn } from '../lib/utils'
 import { posterUrl, backdropUrl, profileUrl, formatRuntime, formatYear } from '@shared/utils'
+import { statusColorDot } from '@shared/status'
 import type { WatchStatus, CatalogItem, LiveDetails, WatchProviders, ViewingEntry } from '@shared/types'
 import ProceduralPoster from './ProceduralPoster'
 import SeasonGrid from './SeasonGrid'
 import TrailerModal from './TrailerModal'
+import WatchModal from './WatchModal'
 import ListPicker from './ListPicker'
 import { api } from '../lib/api'
-
-const STATUSES: { value: WatchStatus; label: string }[] = [
-  { value: 'watching', label: 'Watching' },
-  { value: 'planned', label: 'Planned' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'rewatching', label: 'Rewatching' },
-  { value: 'dropped', label: 'Dropped' }
-]
 
 function isLibraryItem(item: unknown): item is {
   libraryId: number
   status: WatchStatus
   rating: number | null
   notes: string | null
+  watchedAt: string | null
   id: number
   title: string
   kind: string
@@ -39,6 +34,25 @@ function isLibraryItem(item: unknown): item is {
   return typeof (item as { libraryId?: number })?.libraryId === 'number'
 }
 
+/** Today as a yyyy-mm-dd string for <input type="date">. */
+function todayInput(): string {
+  return toDateInput(new Date().toISOString())
+}
+
+/** An ISO timestamp -> the yyyy-mm-dd a date input expects (local-day safe). */
+function toDateInput(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** A yyyy-mm-dd -> ISO timestamp. Noon local avoids off-by-one date rolls. */
+function fromDateInput(val: string): string {
+  const [y, m, d] = val.split('-').map(Number)
+  return new Date(y ?? 2020, (m ?? 1) - 1, d ?? 1, 12, 0, 0).toISOString()
+}
+
 export default function DetailPanel() {
   const item = useUI(s => s.detailItem)
   const closeDetail = useUI(s => s.closeDetail)
@@ -48,6 +62,7 @@ export default function DetailPanel() {
   const removeItem = useData(s => s.removeItem)
   const logEpisode = useData(s => s.logEpisode)
   const library = useData(s => s.library)
+  const statusPalette = useStatuses(s => s.statuses)
 
   const [status, setStatus] = useState<WatchStatus | null>(null)
   const [rating, setRating] = useState<number | null>(null)
@@ -58,23 +73,61 @@ export default function DetailPanel() {
   const [providers, setProviders] = useState<WatchProviders | null>(null)
   const [viewings, setViewings] = useState<ViewingEntry[]>([])
   const [trailerOpen, setTrailerOpen] = useState(false)
+  const [watchOpen, setWatchOpen] = useState(false)
   const loadCollections = useCollections(s => s.loadCollections)
+  const bumpItems = useCollections(s => s.bumpItems)
   const [containedIn, setContainedIn] = useState<number[]>([])
+  /**
+   * The watched-date prompt. "Completed" is the one status that carries a real
+   * date, and "Log a viewing" is meaningless without one — both route through
+   * here so the user can pin the exact day instead of accepting "now".
+   */
+  const [datePrompt, setDatePrompt] = useState<null | { mode: 'status' | 'viewing' }>(null)
+  const [dateVal, setDateVal] = useState('')
+  /** True while a date commit is in flight, so one viewing is never logged twice. */
+  const [dateBusy, setDateBusy] = useState(false)
+  /** Manual "minutes per episode" for series TMDB has no runtime for. */
+  const [episodesRuntime, setEpisodesRuntime] = useState('')
 
-  const inLibrary = isLibraryItem(item) ? item : library.find(l => l.id === (item as CatalogItem)?.id)
+  // Live TMDB results carry catalog id 0, so matching against the library by
+  // id never finds them — a title shelved from Discover then showed as
+  // un-shelved everywhere except the Library view. TMDB id is stable per
+  // title, so match on that first and only fall back to the catalog id.
+  // (This runs on every render, including when no detail is open and item is
+  // null — guard first or the lookup throws and whites out the whole app.)
+  const inLibrary = !item
+    ? undefined
+    : isLibraryItem(item)
+      ? item
+      : library.find(
+          l =>
+            (item.tmdbId != null && l.tmdbId === item.tmdbId) ||
+            (item.id > 0 && l.id === item.id)
+        )
 
+  /**
+   * Seed the editable fields when a *different* title is opened. This used to
+   * depend on `inLibrary`, whose identity changes on every store reload, so
+   * any background write (the player's 90s auto-mark, a bulk add) wiped the
+   * notes the user was still typing. Keying on `item` alone means reloads
+   * can't clobber in-progress edits.
+   */
   useEffect(() => {
     if (!item) return
     if (inLibrary) {
       setStatus(inLibrary.status)
       setRating(inLibrary.rating)
       setNotes(inLibrary.notes ?? '')
+      setEpisodesRuntime(
+        inLibrary.episodesRuntime != null ? String(inLibrary.episodesRuntime) : ''
+      )
     } else {
       setStatus(null)
       setRating(null)
       setNotes('')
+      setEpisodesRuntime('')
     }
-  }, [item, inLibrary])
+  }, [item])
 
   useEffect(() => {
     if (!item || !isLibraryItem(item)) {
@@ -132,16 +185,28 @@ export default function DetailPanel() {
 
   // Which shelves already hold this title.
   useEffect(() => {
-    const cid = (item as CatalogItem | null)?.id
-    if (!item || !cid) {
+    if (!item) {
       setContainedIn([])
       return
     }
     let cancelled = false
-    api.collections
-      .containing(cid)
-      .then(ids => !cancelled && setContainedIn(ids))
-      .catch(() => !cancelled && setContainedIn([]))
+    // A live item has no catalog row yet — resolve (creating if needed) the
+    // same way a shelf toggle would, so membership shows for it too.
+    const cid = (item as CatalogItem).id
+    const resolve = async () => {
+      if (cid > 0) return cid
+      return (item as CatalogItem).tmdbId ? (await api.catalog.ensure(item as CatalogItem)).id : 0
+    }
+    resolve().then(id => {
+      if (cancelled || !id) {
+        if (!cancelled) setContainedIn([])
+        return
+      }
+      api.collections
+        .containing(id)
+        .then(ids => !cancelled && setContainedIn(ids))
+        .catch(() => !cancelled && setContainedIn([]))
+    })
     return () => {
       cancelled = true
     }
@@ -162,6 +227,13 @@ export default function DetailPanel() {
   const libraryId = inLibrary?.libraryId
 
   const handleSaveStatus = async (s: WatchStatus) => {
+    // "Completed" is worth remembering precisely — ask which day it happened
+    // (with a Today shortcut) rather than silently stamping "now".
+    if (s === 'completed') {
+      setDateVal(toDateInput(inLibrary?.watchedAt) || todayInput())
+      setDatePrompt({ mode: 'status' })
+      return
+    }
     setStatus(s)
     if (libraryId) {
       await updateItem(libraryId, { status: s })
@@ -172,11 +244,35 @@ export default function DetailPanel() {
 
   const handleSaveRating = async (r: number | null) => {
     setRating(r)
-    if (libraryId) await updateItem(libraryId, { rating: r })
+    if (libraryId) {
+      await updateItem(libraryId, { rating: r })
+      return
+    }
+    // Rating a title that isn't shelved means it has been watched — add it as
+    // completed, then attach the rating to the new row.
+    await addItem(item as CatalogItem, 'completed')
+    const tmdb = (item as CatalogItem).tmdbId
+    const entry = useData.getState().library.find(l => tmdb != null && l.tmdbId === tmdb)
+    if (entry) await updateItem(entry.libraryId, { rating: r })
   }
 
   const handleSaveNotes = async () => {
     if (libraryId) await updateItem(libraryId, { notes })
+  }
+
+  /** Persists the per-series episode runtime the user typed. */
+  const handleSaveEpisodesRuntime = async () => {
+    if (!libraryId) return
+    const raw = episodesRuntime.trim()
+    if (!raw) {
+      if (inLibrary?.episodesRuntime != null) {
+        await updateItem(libraryId, { episodesRuntime: null })
+      }
+      return
+    }
+    const minutes = Math.max(1, Math.min(400, Number(raw)))
+    if (!Number.isFinite(minutes) || minutes === inLibrary?.episodesRuntime) return
+    await updateItem(libraryId, { episodesRuntime: minutes })
   }
 
   const handleRemove = async () => {
@@ -195,9 +291,85 @@ export default function DetailPanel() {
   /** Records a full viewing — the backbone of rewatch counts. */
   const handleLogViewing = async () => {
     if (!libraryId) return
-    await api.library.logViewing(libraryId)
-    const v = await api.library.viewings(libraryId)
-    setViewings(v)
+    setDateVal(todayInput())
+    setDatePrompt({ mode: 'viewing' })
+  }
+
+  /** Commits the date chosen in the watched-date prompt. */
+const confirmDate = async () => {
+    const prompt = datePrompt
+    if (!prompt || !dateVal || dateBusy) return
+    // setDatePrompt(null) doesn't unmount the button until React re-renders, so
+    // a fast second click re-entered this with the stale non-null prompt and
+    // logged the same viewing again. Guard on an explicit in-flight flag.
+    setDateBusy(true)
+    const iso = fromDateInput(dateVal)
+    setDatePrompt(null)
+
+    try {
+      if (prompt.mode === 'status') {
+        setStatus('completed')
+        if (libraryId) {
+          await updateItem(libraryId, { status: 'completed', watchedAt: iso })
+          // Finishing a title is itself a viewing — log it against the history.
+          await api.library.logViewing(libraryId, iso)
+          setViewings(await api.library.viewings(libraryId))
+        } else {
+          await addItem(item as CatalogItem, 'completed')
+          // addItem stamped watchedAt with "now"; correct it to the chosen day
+          // and record the viewing. Match by TMDB id — a live item only has its
+          // real catalog id after being persisted, so item.id can still be 0.
+          const tmdb = (item as CatalogItem).tmdbId
+          const catalogId = (item as CatalogItem).id
+          const entry = useData
+            .getState()
+            .library.find((l) => (tmdb != null && l.tmdbId === tmdb) || (catalogId > 0 && l.id === catalogId))
+          if (entry) {
+            await updateItem(entry.libraryId, { watchedAt: iso })
+            await api.library.logViewing(entry.libraryId, iso)
+            setViewings(await api.library.viewings(entry.libraryId))
+          }
+        }
+      } else {
+        if (!libraryId) return
+        await api.library.logViewing(libraryId, iso)
+        await updateItem(libraryId, { watchedAt: iso })
+        setViewings(await api.library.viewings(libraryId))
+      }
+    } catch (err) {
+      console.error('[detail] could not save watched date:', err)
+    } finally {
+      setDateBusy(false)
+    }
+  }
+
+  /**
+   * Marks a title watched straight from the streaming player. Movies record a
+   * full viewing; episodes log into the episode history (and refresh the grid).
+   */
+  const handleMarkWatchedFromPlayer = async (
+    season: number | null,
+    episode: number | null
+  ) => {
+    // The player is reachable from a live title that isn't shelved yet. Shelf
+    // it first (as completed) so the view actually lands somewhere.
+    let lid = libraryId
+    if (!lid) {
+      await addItem(item as CatalogItem, 'completed')
+      const tmdb = (item as CatalogItem).tmdbId
+      const entry = useData.getState().library.find(l => tmdb != null && l.tmdbId === tmdb)
+      lid = entry?.libraryId ?? undefined
+    }
+    if (!lid) return
+    if (season !== null && episode !== null) {
+      await logEpisode(lid, season, episode)
+      const logs = await api.library.episodes(lid)
+      setEpisodes(logs.map(l => ({ season: l.season, episode: l.episode })))
+    } else {
+      await api.library.logViewing(lid)
+      const v = await api.library.viewings(lid)
+      setViewings(v)
+    }
   }
 
   const handleToggleList = async (collectionId: number) => {
@@ -213,6 +385,10 @@ export default function DetailPanel() {
     }
     const ids = await api.collections.containing(persisted.id)
     setContainedIn(ids)
+    // Refresh shelf counts everywhere and let the Lists view know its grid
+    // is stale, so a title added from here shows up without leaving the tab.
+    await loadCollections()
+    bumpItems()
   }
 
   const displayRating = hoverRating ?? rating
@@ -237,8 +413,14 @@ export default function DetailPanel() {
             transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
             onClick={e => e.stopPropagation()}
           >
-            {/* Backdrop hero */}
-            <div className="relative h-44 shrink-0 overflow-hidden">
+            {/*
+              Backdrop hero — pinned to the top of the panel as a backdrop
+              layer. It sits below the scrolling content (z-0) and never
+              intercepts pointer events, so the poster, the title and every
+              section below render above it and scroll over it instead of
+              being hidden behind it.
+            */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-56 overflow-hidden">
               {backdropPath ? (
                 <img
                   src={backdropUrl(backdropPath, 'w1280') ?? undefined}
@@ -249,19 +431,22 @@ export default function DetailPanel() {
                 <div className="h-full w-full bg-gradient-to-br from-surface-3 to-canvas" />
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0b0c0f] via-[#0b0c0f]/55 to-transparent" />
-              <button
-                onClick={closeDetail}
-                className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-ink-soft backdrop-blur transition hover:border-gold hover:text-gold"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                  <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-8">
+            <button
+              onClick={closeDetail}
+              className="absolute right-4 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-ink-soft backdrop-blur transition hover:border-gold hover:text-gold"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-8">
+              {/* Spacer that lets the backdrop show through above the title */}
+              <div className="h-32 shrink-0" aria-hidden="true" />
               {/* Title block */}
-              <div className="-mt-16 flex gap-4">
+              <div className="flex gap-4">
                 <div className="h-44 w-30 shrink-0 overflow-hidden rounded-xl border border-white/10 shadow-card">
                   {posterPath ? (
                     <img
@@ -294,9 +479,9 @@ export default function DetailPanel() {
                   </div>
                   {genres.length > 0 && (
                     <div className="mt-2.5 flex flex-wrap gap-1.5">
-                      {genres.map(g => (
+                      {genres.map((g, i) => (
                         <span
-                          key={g}
+                          key={`${i}-${g}`}
                           className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10.5px] text-ink-soft"
                         >
                           {g}
@@ -307,12 +492,22 @@ export default function DetailPanel() {
                 </div>
               </div>
 
-              {/* Action row: trailer + shelves + log a viewing */}
+              {/* Action row: watch + trailer + shelves + log a viewing */}
               <div className="mt-5 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setWatchOpen(true)}
+                  disabled={!item.tmdbId}
+                  className="flex items-center gap-2 rounded-lg border border-gold/50 bg-gold/15 px-3.5 py-2 text-xs font-semibold text-gold transition hover:bg-gold/25 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                  Watch free
+                </button>
                 <button
                   onClick={() => setTrailerOpen(true)}
                   disabled={!item.tmdbId}
-                  className="flex items-center gap-2 rounded-lg border border-gold/50 bg-gold/15 px-3.5 py-2 text-xs font-semibold text-gold transition hover:bg-gold/25 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-xs font-medium text-ink-soft transition hover:border-gold/40 hover:text-gold disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M8 5v14l11-7z" />
@@ -394,7 +589,7 @@ export default function DetailPanel() {
               {live && live.cast.length > 0 && (
                 <div className="mt-6">
                   <Label>Cast</Label>
-                  <div className="mt-3 flex gap-3 overflow-x-auto pb-2">
+                  <div className="row-scroll mt-3 flex gap-3 overflow-x-auto pb-2">
                     {live.cast.map(c => (
                       <div key={c.name} className="w-[72px] shrink-0 text-center">
                         <div className="aspect-square overflow-hidden rounded-full border border-line bg-surface-2">
@@ -458,26 +653,92 @@ export default function DetailPanel() {
                   </div>
                 )}
 
-              {/* Status chips */}
+              {/* Status chips — driven by the user's palette, so renamed and
+                  custom statuses appear here automatically. */}
               <div className="mt-6">
                 <Label>Status</Label>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {STATUSES.map(s => (
+                  {statusPalette.map(s => (
                     <button
-                      key={s.value}
-                      onClick={() => handleSaveStatus(s.value)}
+                      key={s.key}
+                      onClick={() => handleSaveStatus(s.key)}
                       className={cn(
-                        'rounded-lg border px-3 py-1.5 text-xs font-medium transition',
-                        status === s.value
+                        'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition',
+                        status === s.key
                           ? 'border-gold bg-gold/15 text-gold'
                           : 'border-line bg-surface text-ink-soft hover:border-gold/50 hover:text-ink'
                       )}
                     >
+                      <span className={cn('h-1.5 w-1.5 rounded-full', statusColorDot(s.color))} />
                       {s.label}
                     </button>
                   ))}
                 </div>
+                {inLibrary && !inLibrary.statusOverride && kind === 'series' && inLibrary.episodesTotal ? (
+                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-dim">
+                    <span className="rounded border border-line bg-surface px-1.5 py-px text-[9px] font-medium">
+                      auto
+                    </span>
+                    Status follows episode progress ({inLibrary.episodesWatched}/{inLibrary.episodesTotal}).
+                  </div>
+                ) : null}
+                {inLibrary?.watchedAt && (
+                  <div className="mt-2 text-[11px] text-ink-dim">
+                    Watched on{' '}
+                    {new Date(inLibrary.watchedAt).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric'
+                    })}
+                  </div>
+                )}
               </div>
+
+              {datePrompt && (
+                <div className="mt-3 rounded-xl border border-gold/30 bg-surface-2/95 p-3.5 shadow-lg">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-gold">
+                    {datePrompt.mode === 'status'
+                      ? 'When did you finish it?'
+                      : 'When did you watch it?'}
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                    <button
+                      onClick={() => setDateVal(todayInput())}
+                      className="rounded-lg border border-gold/40 bg-gold/15 px-2.5 py-1.5 text-[11px] font-medium text-gold transition hover:bg-gold/25"
+                    >
+                      Today
+                    </button>
+                    <button
+                      onClick={() => setDateVal(toDateInput(new Date(Date.now() - 86400000).toISOString()))}
+                      className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[11px] font-medium text-ink-soft transition hover:border-gold/40 hover:text-ink"
+                    >
+                      Yesterday
+                    </button>
+                    <input
+                      type="date"
+                      value={dateVal}
+                      max={todayInput()}
+                      onChange={e => setDateVal(e.target.value)}
+                      className="no-drag rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[11px] text-ink-soft focus:border-gold focus:outline-none"
+                    />
+                  </div>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button
+                      onClick={() => setDatePrompt(null)}
+                      className="rounded-lg border border-line bg-surface px-3 py-1.5 text-[11px] font-medium text-ink-soft transition hover:text-ink"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={confirmDate}
+                      disabled={!dateVal || dateBusy}
+                      className="rounded-lg border border-gold/50 bg-gold/20 px-3 py-1.5 text-[11px] font-semibold text-gold transition hover:bg-gold/30 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {dateBusy ? 'Saving…' : 'Save date'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Star rating */}
               <div className="mt-5">
@@ -536,6 +797,33 @@ export default function DetailPanel() {
                       watchedAt: ''
                     }))}
                   />
+
+                  {/* Episode-runtime override — the fix for a series TMDB has no
+                      length for, which otherwise contributes zero watch time. */}
+                  {libraryId && inLibrary && !inLibrary.runtimeMinutes ? (
+                    <div className="mt-4 rounded-xl border border-line bg-surface-2/60 px-3.5 py-3">
+                      <div className="text-[11px] font-semibold text-ink-soft">
+                        Average episode length
+                      </div>
+                      <p className="mt-1 text-[10.5px] leading-relaxed text-ink-dim">
+                        TMDB has no runtime for this series, so it adds nothing to your watch time.
+                        Enter the typical episode length once and it counts from then on.
+                      </p>
+                      <div className="mt-2.5 flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={400}
+                          value={episodesRuntime}
+                          onChange={e => setEpisodesRuntime(e.target.value)}
+                          onBlur={handleSaveEpisodesRuntime}
+                          placeholder="e.g. 45"
+                          className="no-drag w-24 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink placeholder:text-ink-dim focus:border-gold focus:outline-none"
+                        />
+                        <span className="text-[11px] text-ink-dim">minutes per episode</span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -615,6 +903,17 @@ export default function DetailPanel() {
           kind={item.kind}
           title={item.title}
           onClose={async () => setTrailerOpen(false)}
+        />
+      )}
+
+      {watchOpen && (
+        <WatchModal
+          tmdbId={item.tmdbId}
+          kind={item.kind}
+          title={item.title}
+          seasonsTotal={live?.seasons ?? null}
+          onClose={() => setWatchOpen(false)}
+          onMarkWatched={handleMarkWatchedFromPlayer}
         />
       )}
     </AnimatePresence>

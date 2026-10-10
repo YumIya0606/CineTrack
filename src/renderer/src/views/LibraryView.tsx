@@ -1,20 +1,12 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { useUI, useData } from '../store'
+import { useUI, useData, useStatuses } from '../store'
 import { cn } from '../lib/utils'
 import type { WatchStatus } from '@shared/types'
 import PosterCard from '../components/PosterCard'
 
 type SortKey = 'updated' | 'title' | 'year' | 'rating'
 type FilterKind = 'all' | WatchStatus
-
-const FILTERS: { id: FilterKind; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'completed', label: 'Completed' },
-  { id: 'watching', label: 'Watching' },
-  { id: 'rewatching', label: 'Rewatching' },
-  { id: 'dropped', label: 'Dropped' }
-]
 
 const SORTS: { id: SortKey; label: string }[] = [
   { id: 'updated', label: 'Recently updated' },
@@ -26,10 +18,24 @@ const SORTS: { id: SortKey; label: string }[] = [
 export default function LibraryView() {
   const library = useData(s => s.library)
   const setCommandOpen = useUI(s => s.setCommandOpen)
+  const setBulkOpen = useUI(s => s.setBulkOpen)
+  const statuses = useStatuses(s => s.statuses)
 
   const [filter, setFilter] = useState<FilterKind>('all')
   const [sort, setSort] = useState<SortKey>('updated')
   const [localQuery, setLocalQuery] = useState('')
+
+  // Planned lives in the Watchlist, so it never appears as a library filter —
+  // but every other status comes straight from the user's palette so renamed
+  // and custom statuses show up here too.
+  const FILTERS = useMemo(
+    () =>
+      [
+        { id: 'all' as FilterKind, label: 'All' },
+        ...statuses.filter(s => s.key !== 'planned').map(s => ({ id: s.key as FilterKind, label: s.label }))
+      ],
+    [statuses]
+  )
 
   // Library excludes the planned list — that lives in Watchlist.
   const items = useMemo(() => {
@@ -72,6 +78,16 @@ export default function LibraryView() {
 
       {/* Toolbar */}
       <div className="mb-6 flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => setBulkOpen(true)}
+          className="flex items-center gap-2 rounded-full border border-gold/40 bg-gold/10 px-3.5 py-2 text-xs font-semibold text-gold transition hover:bg-gold/20"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+          </svg>
+          Add many
+        </button>
+
         <div className="flex items-center gap-1.5 rounded-full border border-line bg-surface/60 p-1">
           {FILTERS.map(f => (
             <button

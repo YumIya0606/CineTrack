@@ -15,8 +15,24 @@ import type {
   Genre,
   Collection,
   ViewingEntry,
-  NotificationItem
+  NotificationItem,
+  BulkAddOptions,
+  BulkAddResult,
+  BackfillResult,
+  BackupStatus,
+  BoardFilters,
+  BoardSort,
+  BoardResult,
+  StatusDef
 } from '@shared/types'
+
+/** Payload for creating a custom status. */
+export interface CreateStatusInput {
+  label: string
+  color: string
+  countsTowardWatchTime: boolean
+  derivable: boolean
+}
 
 /**
  * The renderer talks to the main process exclusively through this bridge.
@@ -35,14 +51,39 @@ export interface CineTrackApi {
     add: (catalogId: number, status: WatchStatus) => Promise<LibraryItem>
     update: (
       libraryId: number,
-      patch: Partial<Pick<LibraryItem, 'status' | 'rating' | 'notes' | 'watchedAt'>>
+      patch: Partial<
+        Pick<
+          LibraryItem,
+          'status' | 'rating' | 'notes' | 'watchedAt' | 'episodesTotal' | 'seasonsTotal' | 'episodesRuntime'
+        >
+      >
     ) => Promise<void>
     remove: (libraryId: number) => Promise<void>
     logEpisode: (libraryId: number, season: number, episode: number) => Promise<EpisodeLog>
     episodes: (libraryId: number) => Promise<EpisodeLog[]>
     importImdb: () => Promise<{ imported: number; skipped: number }>
-    logViewing: (libraryId: number) => Promise<void>
+    logViewing: (libraryId: number, watchedAt?: string) => Promise<void>
     viewings: (libraryId: number) => Promise<ViewingEntry[]>
+    bulkAdd: (
+      items: CatalogItem[],
+      status: WatchStatus,
+      opts?: BulkAddOptions
+    ) => Promise<BulkAddResult>
+    backfill: () => Promise<BackfillResult>
+    board: (filters: BoardFilters, sort?: BoardSort) => Promise<BoardResult>
+  }
+  statuses: {
+    list: () => Promise<StatusDef[]>
+    rows: () => Promise<StatusDef[]>
+    create: (input: CreateStatusInput) => Promise<StatusDef>
+    update: (
+      id: number,
+      patch: Partial<
+        Pick<StatusDef, 'label' | 'color' | 'countsTowardWatchTime' | 'derivable' | 'position'>
+      >
+    ) => Promise<StatusDef[]>
+    remove: (id: number) => Promise<{ reassigned: number; statuses: StatusDef[] }>
+    reorder: (order: { id: number; position: number }[]) => Promise<StatusDef[]>
   }
   stats: {
     get: () => Promise<Stats>
@@ -80,10 +121,18 @@ export interface CineTrackApi {
   backup: {
     export: (passphrase: string) => Promise<{ path: string; size: number }>
     import: (passphrase: string) => Promise<{ size: number }>
+    setFolder: () => Promise<string | null>
+    status: () => Promise<BackupStatus>
+    setOnExit: (on: boolean) => Promise<void>
+    auto: (passphrase: string, folder: string) => Promise<{ path: string; size: number }>
   }
   app: {
     openDataDir: () => Promise<void>
     version: () => Promise<string>
+  },
+  adblock: {
+    set: (on: boolean) => Promise<void>
+    status: () => Promise<boolean>
   }
 }
 

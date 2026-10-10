@@ -1,8 +1,8 @@
-import { memo } from 'react'
+import { memo, type CSSProperties } from 'react'
 import { motion } from 'framer-motion'
 import { posterUrl, formatYear, formatRuntime } from '@shared/utils'
 import type { CatalogItem, LibraryItem, WatchStatus } from '@shared/types'
-import { useUI, useData } from '../store'
+import { useUI, useData, libraryKey } from '../store'
 import { useTilt } from '../lib/use-tilt'
 import ProceduralPoster from './ProceduralPoster'
 import { cn } from '../lib/utils'
@@ -11,6 +11,7 @@ interface PosterCardProps {
   item: CatalogItem | LibraryItem
   onClick?: () => void
   className?: string
+  style?: CSSProperties
   showStatus?: boolean
   index?: number
 }
@@ -28,11 +29,26 @@ function isLibraryItem(item: PosterCardProps['item']): item is LibraryItem {
 }
 
 /** A single poster tile with hover zoom + status badge. */
-function PosterCardImpl({ item, onClick, className, showStatus = true, index = 0 }: PosterCardProps) {
+function PosterCardImpl({
+  item,
+  onClick,
+  className,
+  style,
+  showStatus = true,
+  index = 0
+}: PosterCardProps) {
   const openDetail = useUI(s => s.openDetail)
   const addItem = useData(s => s.addItem)
   const reduceMotion = useUI(s => s.reduceMotion)
-  const libraryItem = isLibraryItem(item) ? item : null
+  // Read one key from the store index instead of subscribing to the whole
+  // library array — a poster grid with hundreds of cards used to run a
+  // `.find()` over every row, per card, on every library mutation.
+  const indexKey = libraryKey(item.id, item.tmdbId)
+  const shelvedItem = useData(s => s.libraryIndex.get(indexKey))
+  // Live items carry catalog id 0, so a title shelved from Discover still
+  // looks un-shelved on its poster. Match against the library by TMDB id so
+  // the status badge is correct on every poster, in every view.
+  const libraryItem = isLibraryItem(item) ? item : (shelvedItem ?? null)
   const tilt = useTilt(10)
 
   const handleClick = () => onClick?.() ?? openDetail(item)
@@ -52,6 +68,7 @@ function PosterCardImpl({ item, onClick, className, showStatus = true, index = 0
         ease: [0.16, 1, 0.3, 1]
       }}
       className={cn('tilt-stage group relative shrink-0 cursor-pointer', className)}
+      style={style}
       onClick={handleClick}
       whileHover={{ y: -6 }}
       onPointerMove={reduceMotion ? undefined : tilt.onMove}

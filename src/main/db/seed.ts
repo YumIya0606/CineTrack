@@ -40,4 +40,18 @@ export function seedIfEmpty(db: AnyDb, raw: Database.Database): void {
   `)
 
   raw.exec(`INSERT INTO catalog_fts(catalog_fts) VALUES('rebuild');`)
+
+  // The five built-in statuses. Idempotent so an existing install that already
+  // has them (via the migration) isn't duplicated, and a fresh one still gets
+  // the full set the UI renders chips from.
+  raw.exec(`
+    INSERT OR IGNORE INTO status_defs
+      (key, label, color, position, counts_toward_watch_time, derivable, is_system)
+    VALUES
+      ('watching',   'Watching',   'azure',   0, 0, 1, 1),
+      ('planned',    'Planned',    'violet',  1, 0, 1, 1),
+      ('completed',  'Completed',  'emerald', 2, 1, 1, 1),
+      ('rewatching', 'Rewatching', 'gold',    3, 1, 0, 1),
+      ('dropped',    'Dropped',    'crimson', 4, 0, 0, 1);
+  `)
 }

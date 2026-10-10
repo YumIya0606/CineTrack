@@ -47,12 +47,32 @@ import {
   collectionsForItem
 } from '../db/collections'
 import { logViewing, listViewings } from '../db/viewings'
+import { bulkAddToLibrary, backfillRuntimes, enrichCatalogRow, enrichForLibraryRow } from '../db/bulk'
+import { queryBoard } from '../db/board'
+import {
+  listStatuses,
+  listStatusRows,
+  createStatus,
+  updateStatus,
+  deleteStatus,
+  reorderStatuses
+} from '../db/statuses'
+import type { CreateStatusInput } from '../db/statuses'
+import { setAdBlockerEnabled, isAdBlockerEnabled } from '../adblock'
 import {
   listPendingNotifications,
   dismissNotification
 } from '../db/notifications'
-import { checkForNotifications, setNotificationsEnabled } from '../notifications'
-import { exportBackup, importBackup } from '../backup'
+import { checkAndFireNotifications, setNotificationsEnabled } from '../notifications'
+import {
+  exportBackup,
+  importBackup,
+  chooseBackupFolder,
+  getBackupStatus,
+  setBackupOnExit,
+  runAutoBackup
+} from '../backup'
+import type { BulkAddOptions, BoardFilters, BoardSort } from '@shared/types'
 
 export function registerIpcHandlers(): void {
   /* ---------- Catalog (local) ---------- */
@@ -63,16 +83,33 @@ export function registerIpcHandlers(): void {
 
   /* ---------- Library ---------- */
   ipcMain.handle(IPC.LIBRARY_LIST, () => listLibrary())
-  ipcMain.handle(IPC.LIBRARY_ADD, (_e, catalogId: number, status: WatchStatus) =>
-    addToLibrary(catalogId, status)
-  )
+  ipcMain.handle(IPC.LIBRARY_ADD, async (_e, catalogId: number, status: WatchStatus) => {
+    // Runtimes arrive here: a movie added from a live search has no runtime,
+    // and a series needs its episode count. Fetched once, stored on the row.
+    const counts = await enrichCatalogRow(catalogId)
+    return addToLibrary(catalogId, status, counts)
+  })
   ipcMain.handle(
     IPC.LIBRARY_UPDATE,
-    (
+    async (
       _e,
       libraryId: number,
       patch: Parameters<typeof updateLibrary>[1]
-    ) => updateLibrary(libraryId, patch)
+    ) => {
+      if (patch.status === 'completed') {
+        const counts = await enrichForLibraryRow(libraryId)
+        updateLibrary(libraryId, {
+          ...patch,
+          // Enrichment returns nulls when TMDB is unreachable or the key
+          // expired — writing those over the row wiped the episode totals the
+          // user could already see. Only fill in what we actually learned.
+          ...(counts.episodesTotal != null ? { episodesTotal: counts.episodesTotal } : {}),
+          ...(counts.seasonsTotal != null ? { seasonsTotal: counts.seasonsTotal } : {})
+        })
+        return
+      }
+      updateLibrary(libraryId, patch)
+    }
   )
   ipcMain.handle(IPC.LIBRARY_REMOVE, (_e, libraryId: number) => removeFromLibrary(libraryId))
   ipcMain.handle(
@@ -81,6 +118,34 @@ export function registerIpcHandlers(): void {
       logEpisode(libraryId, season, episode)
   )
   ipcMain.handle(IPC.LIBRARY_EPISODES, (_e, libraryId: number) => listEpisodes(libraryId))
+
+  ipcMain.handle(
+    IPC.LIBRARY_BULK_ADD,
+    async (_e, items: CatalogItem[], status: WatchStatus, opts?: BulkAddOptions) =>
+      bulkAddToLibrary(items, status, opts ?? {})
+  )
+  ipcMain.handle(IPC.LIBRARY_BACKFILL, async () => backfillRuntimes())
+  ipcMain.handle(
+    IPC.LIBRARY_BOARD,
+    (_e, filters: BoardFilters, sort?: BoardSort) => queryBoard(filters ?? {}, sort ?? 'updated')
+  )
+
+  /* ---------- Status palette ---------- */
+  ipcMain.handle(IPC.STATUS_LIST, () => listStatuses())
+  ipcMain.handle(IPC.STATUS_ROWS, () => listStatusRows())
+  ipcMain.handle(IPC.STATUS_CREATE, (_e, input: CreateStatusInput) => createStatus(input))
+  ipcMain.handle(IPC.STATUS_UPDATE, (_e, id: number, patch: Parameters<typeof updateStatus>[1]) => {
+    updateStatus(id, patch)
+    return listStatuses()
+  })
+  ipcMain.handle(IPC.STATUS_DELETE, (_e, id: number) => {
+    const res = deleteStatus(id)
+    return { ...res, statuses: listStatuses() }
+  })
+  ipcMain.handle(IPC.STATUS_REORDER, (_e, order: { id: number; position: number }[]) => {
+    reorderStatuses(order)
+    return listStatuses()
+  })
 
   ipcMain.handle(IPC.LIBRARY_IMPORT_IMDB, async () => {
     const result = await dialog.showOpenDialog({
@@ -159,6 +224,12 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(IPC.APP_VERSION, () => app.getVersion())
 
+  /* ---------- Ad blocker ---------- */
+  ipcMain.handle(IPC.ADBLOCK_SET, async (_e, on: boolean) => {
+    await setAdBlockerEnabled(on)
+  })
+  ipcMain.handle(IPC.ADBLOCK_STATUS, () => isAdBlockerEnabled())
+
   /* ---------- Live enrichment ---------- */
   ipcMain.handle(IPC.TMDB_TRAILER, async (_e, tmdbId: number, kind: MediaKind) => {
     const v = await trailerTmdb(tmdbId, kind)
@@ -207,17 +278,23 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.COLLECTION_MOVE, (_e, catalogId: number) => collectionsForItem(catalogId))
 
   /* ---------- Rewatch / viewing log ---------- */
-  ipcMain.handle(IPC.LIBRARY_LOG_VIEWING, (_e, libraryId: number) =>
-    logViewing(libraryId)
+  ipcMain.handle(IPC.LIBRARY_LOG_VIEWING, (_e, libraryId: number, watchedAt?: string) =>
+    logViewing(libraryId, watchedAt)
   )
   ipcMain.handle(IPC.LIBRARY_VIEWINGS, (_e, libraryId: number) => listViewings(libraryId))
 
   /* ---------- Notifications ---------- */
   ipcMain.handle(IPC.NOTIFICATIONS_LIST, (): NotificationItem[] => listPendingNotifications())
   ipcMain.handle(IPC.NOTIFICATIONS_DISMISS, (_e, id: number) => dismissNotification(id))
-  ipcMain.handle(IPC.NOTIFICATIONS_CHECK, async () => checkForNotifications())
+  ipcMain.handle(IPC.NOTIFICATIONS_CHECK, async () => checkAndFireNotifications())
 
   /* ---------- Encrypted backup ---------- */
   ipcMain.handle(IPC.BACKUP_EXPORT, async (_e, passphrase: string) => exportBackup(passphrase))
   ipcMain.handle(IPC.BACKUP_IMPORT, async (_e, passphrase: string) => importBackup(passphrase))
+  ipcMain.handle(IPC.BACKUP_SET_FOLDER, async () => chooseBackupFolder())
+  ipcMain.handle(IPC.BACKUP_STATUS, () => getBackupStatus())
+  ipcMain.handle(IPC.BACKUP_SET_ON_EXIT, (_e, on: boolean) => setBackupOnExit(on))
+  ipcMain.handle(IPC.BACKUP_AUTO, async (_e, passphrase: string, folder: string) =>
+    runAutoBackup(passphrase, folder)
+  )
 }

@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { api } from '../lib/api'
 import { useUI, useData } from '../store'
 import { cn } from '../lib/utils'
-import { formatYear } from '@shared/utils'
+import { formatYear, catalogKey } from '@shared/utils'
 import type { CatalogItem } from '@shared/types'
 import ProceduralPoster from './ProceduralPoster'
 
@@ -40,8 +40,11 @@ export default function CommandPalette() {
         if (!cancelled) {
           setResults(recent)
           setSelected(0)
+          setLoading(false)
         }
-      } else {
+        return
+      }
+      try {
         const [local, live] = await Promise.all([
           api.catalog.search(q, 12),
           connected ? api.tmdb.search(q).catch(() => [] as CatalogItem[]) : Promise.resolve([])
@@ -59,8 +62,13 @@ export default function CommandPalette() {
           setResults(merged.slice(0, 24))
           setSelected(0)
         }
+      } catch {
+        // Without this the spinner cleared only on the success path, so one
+        // failed query left "Searching the catalog…" up forever.
+        if (!cancelled) setResults([])
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      if (!cancelled) setLoading(false)
     }, 180)
     return () => {
       cancelled = true
@@ -170,7 +178,7 @@ export default function CommandPalette() {
               {!loading &&
                 grouped.map((item, idx) => (
                   <div
-                    key={item.id}
+                    key={catalogKey(item)}
                     className={cn(
                       'group flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 transition-colors',
                       idx === selected ? 'bg-surface-3' : 'hover:bg-surface-2'
@@ -212,7 +220,7 @@ export default function CommandPalette() {
                           handleQuickAdd(item, 'completed')
                         }}
                       >
-                        Watched
+                        Completed
                       </button>
                       <button
                         className="rounded-lg border border-line bg-surface px-2 py-1 text-[11px] font-medium text-ink-soft hover:border-gold hover:text-gold"
@@ -221,7 +229,7 @@ export default function CommandPalette() {
                           handleQuickAdd(item, 'planned')
                         }}
                       >
-                        Plan
+                        Planned
                       </button>
                     </div>
                   </div>

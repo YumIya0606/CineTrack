@@ -34,6 +34,7 @@ export async function checkForNotifications(): Promise<NotificationItem[]> {
   if (!notificationsEnabled()) return []
 
   const items = listLibrary().filter(l => l.status === 'watching' && l.kind === 'series')
+  let failures = 0
   for (const item of items) {
     if (!item.tmdbId) continue
     try {
@@ -56,12 +57,20 @@ export async function checkForNotifications(): Promise<NotificationItem[]> {
           scheduledFor: next.airDate
         })
       }
-    } catch {
-      /* a single failing show shouldn't break the sweep */
+    } catch (err) {
+      // A single failing show shouldn't break the sweep, but a total wipeout
+      // means the key died or the network is gone — log it instead of
+      // stamping "last checked" and pretending everything is healthy.
+      failures++
+      if (failures === 1) console.error('[notifications] TMDB sweep failed:', err)
     }
   }
 
-  setSetting<string>(LAST_CHECK_KEY, new Date().toISOString())
+  if (failures < items.length) {
+    setSetting<string>(LAST_CHECK_KEY, new Date().toISOString())
+  } else if (items.length > 0) {
+    console.error(`[notifications] every one of ${items.length} shows failed to refresh`)
+  }
   return listPendingNotifications()
 }
 
@@ -84,24 +93,54 @@ export function fireDueNotifications(): void {
 }
 
 let timer: ReturnType<typeof setInterval> | null = null
+let bootTimer: ReturnType<typeof setTimeout> | null = null
+/** Guards against an hourly tick overlapping a manual "check now". */
+let sweeping = false
 
 /** Starts the periodic notification sweep. Safe to call once at boot. */
 export function startNotificationEngine(): void {
   if (timer) return
   // Kick once shortly after boot (lets the DB + window settle), then hourly.
-  setTimeout(() => {
-    checkForNotifications().catch(() => {})
-    fireDueNotifications()
+  // The handle is kept so stopNotificationEngine() can actually cancel it —
+  // it used to fire after a stop and touch a closed database.
+  bootTimer = setTimeout(() => {
+    bootTimer = null
+    void sweepAndFire()
   }, 12_000)
-  timer = setInterval(() => {
-    checkForNotifications().catch(() => {})
+  timer = setInterval(() => void sweepAndFire(), CHECK_INTERVAL_MS)
+}
+
+async function sweepAndFire(): Promise<void> {
+  if (sweeping) return
+  sweeping = true
+  try {
+    await checkForNotifications()
     fireDueNotifications()
-  }, CHECK_INTERVAL_MS)
+  } catch (err) {
+    console.error('[notifications] sweep failed:', err)
+  } finally {
+    sweeping = false
+  }
+}
+
+/**
+ * Manual "check now" — sweeps and then immediately fires anything due.
+ * Previously this only generated rows; they sat unfired until the next
+ * hourly tick, so a click produced nothing visible.
+ */
+export async function checkAndFireNotifications(): Promise<NotificationItem[]> {
+  const items = await checkForNotifications()
+  fireDueNotifications()
+  return items
 }
 
 export function stopNotificationEngine(): void {
   if (timer) {
     clearInterval(timer)
     timer = null
+  }
+  if (bootTimer) {
+    clearTimeout(bootTimer)
+    bootTimer = null
   }
 }

@@ -38,9 +38,9 @@ export const library = sqliteTable(
     catalogId: integer('catalog_id')
       .notNull()
       .references(() => catalog.id, { onDelete: 'cascade' }),
-    status: text('status', {
-      enum: ['watching', 'planned', 'completed', 'dropped', 'rewatching']
-    }).notNull(),
+    // Deliberately NOT typed as an enum: statuses are user-definable now, so
+    // any string key is legal here. Use statusDefs for the palette.
+    status: text('status').notNull(),
     rating: integer('rating'), // 1..10
     notes: text('notes'),
     addedAt: text('added_at').notNull(),
@@ -49,7 +49,19 @@ export const library = sqliteTable(
     episodesWatched: integer('episodes_watched').notNull().default(0),
     episodesTotal: integer('episodes_total'),
     seasonsTotal: integer('seasons_total'),
-    playCount: integer('play_count').notNull().default(1)
+    playCount: integer('play_count').notNull().default(1),
+    /**
+     * When set, the user picked this status by hand and the episode-progress
+     * engine must not overwrite it. Series statuses are otherwise *derived*
+     * from episodes watched (0 → planned, partial → watching, all → completed).
+     */
+    statusOverride: integer('status_override', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * Per-title override for a series' episode runtime, in minutes. Needed when
+     * TMDB doesn't publish one — without it a completed series contributes zero
+     * minutes to watch time no matter how many episodes are logged.
+     */
+    episodesRuntime: integer('episodes_runtime')
   },
   t => [
     index('idx_library_status').on(t.status),
@@ -57,6 +69,34 @@ export const library = sqliteTable(
     index('idx_library_updated').on(t.updatedAt)
   ]
 )
+
+/**
+ * User-definable statuses. The five built-ins seed here so existing library rows
+ * (which store the canonical keys) always resolve; everything else — label,
+ * colour, ordering, and whether it counts toward watch time — is editable, and
+ * the user can add their own.
+ */
+export const statusDefs = sqliteTable('status_defs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** Stable slug stored on library.status. Never shown, never auto-reused. */
+  key: text('key').notNull().unique(),
+  label: text('label').notNull(),
+  /** Accent token id from the renderer's palette (gold, emerald, azure…). */
+  color: text('color').notNull().default('slate'),
+  position: integer('position').notNull().default(0),
+  /** Adds its titles' runtimes into the watch-time total. */
+  countsTowardWatchTime: integer('counts_toward_watch_time', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  /**
+   * The episode-progress engine may assign this status on its own. Only the
+   * three "progress" statuses are derivable; Dropped/Rewatching describe intent
+   * rather than progress, so they are always manual.
+   */
+  derivable: integer('derivable', { mode: 'boolean' }).notNull().default(false),
+  /** Built-in statuses can't be deleted, only restyled. */
+  isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false)
+})
 
 /* Per-episode watch log for series. Composite key prevents duplicate logs. */
 export const episodeLog = sqliteTable(
@@ -164,6 +204,7 @@ export const notifications = sqliteTable(
 
 export type CatalogRow = typeof catalog.$inferSelect
 export type LibraryRow = typeof library.$inferSelect
+export type StatusDefRow = typeof statusDefs.$inferSelect
 export type EpisodeLogRow = typeof episodeLog.$inferSelect
 export type SettingsRow = typeof settings.$inferSelect
 export type PeopleRow = typeof people.$inferSelect

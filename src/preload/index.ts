@@ -17,8 +17,24 @@ import type {
   Genre,
   Collection,
   ViewingEntry,
-  NotificationItem
+  NotificationItem,
+  BulkAddOptions,
+  BulkAddResult,
+  BackfillResult,
+  BackupStatus,
+  BoardFilters,
+  BoardSort,
+  BoardResult,
+  StatusDef
 } from '@shared/types'
+
+/** Payload for creating a custom status. */
+export interface CreateStatusInput {
+  label: string
+  color: string
+  countsTowardWatchTime: boolean
+  derivable: boolean
+}
 
 const api = {
   catalog: {
@@ -35,7 +51,12 @@ const api = {
       ipcRenderer.invoke(IPC.LIBRARY_ADD, catalogId, status),
     update: (
       libraryId: number,
-      patch: Partial<Pick<LibraryItem, 'status' | 'rating' | 'notes' | 'watchedAt'>>
+      patch: Partial<
+        Pick<
+          LibraryItem,
+          'status' | 'rating' | 'notes' | 'watchedAt' | 'episodesTotal' | 'seasonsTotal' | 'episodesRuntime'
+        >
+      >
     ): Promise<void> => ipcRenderer.invoke(IPC.LIBRARY_UPDATE, libraryId, patch),
     remove: (libraryId: number): Promise<void> => ipcRenderer.invoke(IPC.LIBRARY_REMOVE, libraryId),
     logEpisode: (libraryId: number, season: number, episode: number): Promise<EpisodeLog> =>
@@ -44,10 +65,32 @@ const api = {
       ipcRenderer.invoke(IPC.LIBRARY_EPISODES, libraryId),
     importImdb: (): Promise<{ imported: number; skipped: number }> =>
       ipcRenderer.invoke(IPC.LIBRARY_IMPORT_IMDB),
-    logViewing: (libraryId: number): Promise<void> =>
-      ipcRenderer.invoke(IPC.LIBRARY_LOG_VIEWING, libraryId),
+    logViewing: (libraryId: number, watchedAt?: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.LIBRARY_LOG_VIEWING, libraryId, watchedAt),
     viewings: (libraryId: number): Promise<ViewingEntry[]> =>
-      ipcRenderer.invoke(IPC.LIBRARY_VIEWINGS, libraryId)
+      ipcRenderer.invoke(IPC.LIBRARY_VIEWINGS, libraryId),
+    bulkAdd: (
+      items: CatalogItem[],
+      status: WatchStatus,
+      opts?: BulkAddOptions
+    ): Promise<BulkAddResult> => ipcRenderer.invoke(IPC.LIBRARY_BULK_ADD, items, status, opts),
+    backfill: (): Promise<BackfillResult> => ipcRenderer.invoke(IPC.LIBRARY_BACKFILL),
+    board: (filters: BoardFilters, sort?: BoardSort): Promise<BoardResult> =>
+      ipcRenderer.invoke(IPC.LIBRARY_BOARD, filters, sort)
+  },
+  statuses: {
+    list: (): Promise<StatusDef[]> => ipcRenderer.invoke(IPC.STATUS_LIST),
+    rows: (): Promise<StatusDef[]> => ipcRenderer.invoke(IPC.STATUS_ROWS),
+    create: (input: CreateStatusInput): Promise<StatusDef> =>
+      ipcRenderer.invoke(IPC.STATUS_CREATE, input),
+    update: (
+      id: number,
+      patch: Partial<Pick<StatusDef, 'label' | 'color' | 'countsTowardWatchTime' | 'derivable' | 'position'>>
+    ): Promise<StatusDef[]> => ipcRenderer.invoke(IPC.STATUS_UPDATE, id, patch),
+    remove: (id: number): Promise<{ reassigned: number; statuses: StatusDef[] }> =>
+      ipcRenderer.invoke(IPC.STATUS_DELETE, id),
+    reorder: (order: { id: number; position: number }[]): Promise<StatusDef[]> =>
+      ipcRenderer.invoke(IPC.STATUS_REORDER, order)
   },
   stats: {
     get: (): Promise<Stats> => ipcRenderer.invoke(IPC.STATS_GET)
@@ -98,11 +141,20 @@ const api = {
     export: (passphrase: string): Promise<{ path: string; size: number }> =>
       ipcRenderer.invoke(IPC.BACKUP_EXPORT, passphrase),
     import: (passphrase: string): Promise<{ size: number }> =>
-      ipcRenderer.invoke(IPC.BACKUP_IMPORT, passphrase)
+      ipcRenderer.invoke(IPC.BACKUP_IMPORT, passphrase),
+    setFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.BACKUP_SET_FOLDER),
+    status: (): Promise<BackupStatus> => ipcRenderer.invoke(IPC.BACKUP_STATUS),
+    setOnExit: (on: boolean): Promise<void> => ipcRenderer.invoke(IPC.BACKUP_SET_ON_EXIT, on),
+    auto: (passphrase: string, folder: string): Promise<{ path: string; size: number }> =>
+      ipcRenderer.invoke(IPC.BACKUP_AUTO, passphrase, folder)
   },
   app: {
     openDataDir: (): Promise<void> => ipcRenderer.invoke(IPC.APP_OPEN_DATA_DIR),
     version: (): Promise<string> => ipcRenderer.invoke(IPC.APP_VERSION)
+  },
+  adblock: {
+    set: (on: boolean): Promise<void> => ipcRenderer.invoke(IPC.ADBLOCK_SET, on),
+    status: (): Promise<boolean> => ipcRenderer.invoke(IPC.ADBLOCK_STATUS)
   }
 } as const
 

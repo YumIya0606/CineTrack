@@ -12,6 +12,15 @@ export const IPC = {
   LIBRARY_IMPORT_IMDB: 'library:importImdb',
   LIBRARY_LOG_VIEWING: 'library:logViewing',
   LIBRARY_VIEWINGS: 'library:viewings',
+  LIBRARY_BULK_ADD: 'library:bulkAdd',
+  LIBRARY_BACKFILL: 'library:backfill',
+  LIBRARY_BOARD: 'library:board',
+  STATUS_LIST: 'status:list',
+  STATUS_CREATE: 'status:create',
+  STATUS_UPDATE: 'status:update',
+  STATUS_DELETE: 'status:delete',
+  STATUS_REORDER: 'status:reorder',
+  STATUS_ROWS: 'status:rows',
   STATS_GET: 'stats:get',
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
@@ -38,9 +47,15 @@ export const IPC = {
   NOTIFICATIONS_CHECK: 'notifications:check',
   BACKUP_EXPORT: 'backup:export',
   BACKUP_IMPORT: 'backup:import',
+  BACKUP_SET_FOLDER: 'backup:setFolder',
+  BACKUP_STATUS: 'backup:status',
+  BACKUP_SET_ON_EXIT: 'backup:setOnExit',
+  BACKUP_AUTO: 'backup:auto',
   DIALOG_OPEN_FILE: 'dialog:openFile',
   APP_OPEN_DATA_DIR: 'app:openDataDir',
-  APP_VERSION: 'app:version'
+  APP_VERSION: 'app:version',
+  ADBLOCK_SET: 'adblock:set',
+  ADBLOCK_STATUS: 'adblock:status'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

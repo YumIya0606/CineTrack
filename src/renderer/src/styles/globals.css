@@ -31,6 +31,12 @@
 
   --font-display: 'Sora', system-ui, sans-serif;
   --font-sans: 'Inter', system-ui, sans-serif;
+
+  /* Density tokens — overridden by .density-compact for mini-mode. */
+  --poster-w: 150px;
+  --row-gap: 16px;
+  --section-gap: 40px;
+  --view-pad: 32px;
 }
 
 @layer base {
@@ -97,6 +103,24 @@
     background: transparent;
   }
 
+  /* Horizontal poster rows — a slimmer, themed rail so the Discover shelf
+     doesn't flash the chunky OS scrollbar on hover. */
+  .row-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line) transparent;
+  }
+  .row-scroll::-webkit-scrollbar {
+    height: 6px;
+  }
+  .row-scroll::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    border: none;
+    border-radius: 999px;
+  }
+  .row-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--color-gold-dim);
+  }
+
   /* Select dropdowns — keep them on-theme everywhere */
   select {
     color-scheme: dark;
@@ -149,6 +173,18 @@
 
   .no-drag {
     -webkit-app-region: no-drag;
+  }
+
+  /*
+   * Compact density — for large libraries. Shrinks poster width, row gaps, and
+   * section rhythm so more of the collection fits on screen at once. Toggled by
+   * a class on <html>; see lib/theme.ts.
+   */
+  .density-compact {
+    --poster-w: 116px;
+    --row-gap: 10px;
+    --section-gap: 28px;
+    --view-pad: 20px;
   }
 
   /* The perspective stage that lets individual elements tilt in 3D. */

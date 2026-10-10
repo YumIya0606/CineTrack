@@ -2,7 +2,39 @@ export const APP_NAME = 'CineTrack'
 
 export type MediaKind = 'movie' | 'series'
 
-export type WatchStatus = 'watching' | 'planned' | 'completed' | 'dropped' | 'rewatching'
+/**
+ * A status *key*. The built-ins are stable slugs that existing rows already
+ * store, but the user can define more, so this is an open string union rather
+ * than a closed enum. `StatusKey` narrows it to the five known values for
+ * callers that need to reason about the built-ins specifically.
+ */
+export type WatchStatus = string
+
+export type StatusKey =
+  | 'watching'
+  | 'planned'
+  | 'completed'
+  | 'rewatching'
+  | 'dropped'
+
+/** How a series' status is decided. */
+export type StatusMode = 'auto' | 'manual'
+
+/** One entry of the user's status palette. */
+export interface StatusDef {
+  /** Database row id — needed for edits. */
+  id: number
+  key: string
+  label: string
+  color: string
+  position: number
+  /** Adds this status' titles' runtimes into the watch-time total. */
+  countsTowardWatchTime: boolean
+  /** The episode engine may assign this status automatically. */
+  derivable: boolean
+  /** Built-ins can be restyled and reordered, never deleted. */
+  isSystem: boolean
+}
 
 export type Quality = 'cinematic' | 'balanced' | 'battery'
 
@@ -28,6 +60,14 @@ export interface CatalogItem {
 export interface LibraryItem extends CatalogItem {
   libraryId: number
   status: WatchStatus
+  /**
+   * True when the user chose this status by hand. Series otherwise have their
+   * status derived from episode progress, which the UI surfaces so a
+   * "Watching" badge always says *why* it says that.
+   */
+  statusOverride: boolean
+  /** Per-series override for the average episode length, in minutes. */
+  episodesRuntime: number | null
   rating: number | null
   notes: string | null
   addedAt: string
@@ -37,6 +77,58 @@ export interface LibraryItem extends CatalogItem {
   episodesTotal: number | null
   seasonsTotal: number | null
   playCount: number
+}
+
+/* ---------- Status board ---------- */
+
+export type BoardGroupBy = 'status' | 'kind' | 'genre' | 'decade' | 'none'
+export type BoardSort =
+  | 'updated'
+  | 'title'
+  | 'year'
+  | 'rating'
+  | 'runtime'
+  | 'watchedAt'
+  | 'status'
+  | 'progress'
+
+export interface BoardFilters {
+  /** Empty means "every status". */
+  statuses?: string[]
+  kind?: MediaKind
+  /** Matched as "any of"; empty means every genre. */
+  genres?: string[]
+  yearMin?: number
+  yearMax?: number
+  ratingMin?: number
+  /** Restrict to rated / unrated titles. */
+  rated?: boolean
+  /** Only titles the user has finished. */
+  watchedOnly?: boolean
+  /** Only series that are mid-way through their episode list. */
+  inProgressOnly?: boolean
+  query?: string
+}
+
+export interface BoardGroupBucket {
+  key: string
+  label: string
+  count: number
+  minutes: number
+}
+
+/** A row of the board — a library item plus the fields the table renders. */
+export interface BoardRow extends LibraryItem {
+  /** Precomputed watch minutes for this row, under the current status rules. */
+  watchMinutes: number
+}
+
+export interface BoardResult {
+  rows: BoardRow[]
+  total: number
+  /** One entry per status present in the library, with counts and minutes. */
+  summary: { key: string; label: string; color: string; count: number; minutes: number }[]
+  genres: string[]
 }
 
 export interface EpisodeLog {
@@ -139,10 +231,13 @@ export interface ShowStatus {
 
 export interface DiscoverFilters {
   kind?: MediaKind
-  genreId?: number
+  /** One or more genres; matched as "any of" (TMDB with_genres OR). */
+  genreIds?: number[]
   minRating?: number
   fromYear?: number
   toYear?: number
+  /** Upper bound on runtime in minutes (TMDB with_runtime.lte). */
+  maxRuntime?: number
   sortBy?: string
 }
 
@@ -168,6 +263,30 @@ export interface Collection {
 export interface ViewingEntry {
   id: number
   watchedAt: string
+}
+
+export interface BulkAddOptions {
+  /**
+   * Spread watchedAt across this many past months so back-filled history
+   * doesn't collapse the activity chart onto a single day.
+   */
+  windowMonths?: number
+}
+
+export interface BulkAddResult {
+  added: number
+  skipped: number
+}
+
+export interface BackfillResult {
+  fixed: number
+  total: number
+}
+
+export interface BackupStatus {
+  folder: string | null
+  onExit: boolean
+  lastAuto: string | null
 }
 
 export type NotificationKind = 'premiere' | 'new_episode' | 'info'

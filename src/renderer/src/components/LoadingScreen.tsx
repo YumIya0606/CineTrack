@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { useUI } from '../store'
+import Logo from './Logo'
 
 /**
  * Branded loading curtain shown while the library boots — the "curtain rise"
@@ -30,13 +31,12 @@ export default function LoadingScreen() {
         />
         <div className="absolute inset-[3px] rounded-3xl bg-canvas" />
         <motion.div
-          className="absolute inset-3 rounded-2xl bg-gradient-to-br from-gold/90 to-gold-dim shadow-glow"
+          className="absolute inset-3 flex items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-[#1a1d25] to-[#0b0c0f] text-gold shadow-glow"
           animate={{ scale: [1, 1.05, 1] }}
           transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-        />
-        <svg viewBox="0 0 100 100" className="absolute inset-3 h-[calc(100%-24px)] w-[calc(100%-24px)] p-6">
-          <path d="M30 22 L30 78 L70 50 Z" fill="#0b0c0f" />
-        </svg>
+        >
+          <Logo className="h-12 w-12" />
+        </motion.div>
       </div>
 
       <h1 className="mt-7 font-display text-4xl font-bold tracking-tight text-gradient-gold">

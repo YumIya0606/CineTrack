@@ -17,52 +17,62 @@ interface ImportResult {
  */
 export function importImdbRatings(filePath: string): ImportResult {
   const csv = readFileSync(filePath, 'utf-8')
-  const rows = parseCsv(csv)
+  const parsed = parseCsv(csv)
 
   const result: ImportResult = { imported: 0, skipped: 0 }
   const db = getDb()
 
-  for (const row of rows) {
-    const imdbId = row['Const']?.trim()
-    const title = row['Title']?.trim()
-    const year = row['Year'] ? Number(row['Year']) : null
-    const rating = row['Your Rating'] ? Number(row['Your Rating']) : null
-    const date = row['Date Rated']?.trim()
+  // One bad row used to abort the whole loop *after* earlier rows were already
+  // committed, and `new Date(...).toISOString()` threw RangeError on any
+  // unparseable "Date Rated". A transaction makes the import all-or-nothing,
+  // and a bad date degrades to "watched now" instead of killing the import.
+  // Drizzle's transaction() runs the callback immediately and returns its result.
+  db.transaction(() => {
+    for (const row of parsed) {
+      const imdbId = row['Const']?.trim()
+      const title = row['Title']?.trim()
+      const year = row['Year'] ? Number(row['Year']) : null
+      const rating = row['Your Rating'] ? Number(row['Your Rating']) : null
+      const date = row['Date Rated']?.trim()
 
-    if (!title) {
-      result.skipped++
-      continue
+      if (!title) {
+        result.skipped++
+        continue
+      }
+
+      let catalogRow: typeof catalog.$inferSelect | null = null
+
+      if (imdbId) {
+        catalogRow = db.select().from(catalog).where(eq(catalog.imdbId, imdbId)).get() ?? null
+      }
+
+      if (!catalogRow) {
+        const byTitle = db.select().from(catalog).where(eq(catalog.title, title)).all()
+        catalogRow = byTitle.find(r => (year ? r.year === year : true)) ?? byTitle[0] ?? null
+      }
+
+      if (!catalogRow) {
+        result.skipped++
+        continue
+      }
+
+      const status: WatchStatus = 'completed'
+      const lib = addToLibrary(catalogRow.id, status)
+
+      if (rating || date) {
+        // Guard the parse: toISOString() throws RangeError on an invalid Date,
+        // which previously aborted the import mid-flight.
+        const watched = date ? new Date(date) : null
+        const iso = watched && !Number.isNaN(watched.getTime()) ? watched.toISOString() : null
+        db.update(library)
+          .set({ rating: rating ?? null, watchedAt: iso })
+          .where(eq(library.id, lib.libraryId))
+          .run()
+      }
+
+      result.imported++
     }
-
-    let catalogRow: typeof catalog.$inferSelect | null = null
-
-    if (imdbId) {
-      catalogRow = db.select().from(catalog).where(eq(catalog.imdbId, imdbId)).get() ?? null
-    }
-
-    if (!catalogRow) {
-      const byTitle = db.select().from(catalog).where(eq(catalog.title, title)).all()
-      catalogRow = byTitle.find(r => (year ? r.year === year : true)) ?? byTitle[0] ?? null
-    }
-
-    if (!catalogRow) {
-      result.skipped++
-      continue
-    }
-
-    const status: WatchStatus = 'completed'
-    const lib = addToLibrary(catalogRow.id, status)
-
-    if (rating || date) {
-      const iso = date ? new Date(date).toISOString() : null
-      db.update(library)
-        .set({ rating: rating ?? null, watchedAt: iso })
-        .where(eq(library.id, lib.libraryId))
-        .run()
-    }
-
-    result.imported++
-  }
+  })
 
   return result
 }

@@ -4,6 +4,7 @@ import { useCollections, useUI } from '../store'
 import { api } from '../lib/api'
 import { cn } from '../lib/utils'
 import PosterCard from '../components/PosterCard'
+import { catalogKey } from '@shared/utils'
 import type { CatalogItem, Collection } from '@shared/types'
 
 export default function ListsView() {
@@ -11,10 +12,14 @@ export default function ListsView() {
   const loadCollections = useCollections(s => s.loadCollections)
   const createCollection = useCollections(s => s.createCollection)
   const deleteCollection = useCollections(s => s.deleteCollection)
+  // Membership can change from the detail panel while this tab sits in the
+  // background — refetch when it does.
+  const itemsVersion = useCollections(s => s.itemsVersion)
   const setCommandOpen = useUI(s => s.setCommandOpen)
 
   const [activeId, setActiveId] = useState<number | null>(null)
   const [items, setItems] = useState<CatalogItem[]>([])
+  const [itemsLoading, setItemsLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
@@ -32,8 +37,26 @@ export default function ListsView() {
       setItems([])
       return
     }
-    api.collections.items(activeId).then(setItems).catch(() => setItems([]))
-  }, [activeId])
+    // Without this the previous shelf's grid stayed on screen while the new
+    // one loaded, and an out-of-order response could permanently attribute
+    // the wrong titles to the selected shelf.
+    let cancelled = false
+    setItemsLoading(true)
+    api.collections
+      .items(activeId)
+      .then(res => {
+        if (!cancelled) setItems(res)
+      })
+      .catch(() => {
+        if (!cancelled) setItems([])
+      })
+      .finally(() => {
+        if (!cancelled) setItemsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeId, itemsVersion])
 
   const handleCreate = async () => {
     const name = newName.trim()
@@ -160,7 +183,18 @@ export default function ListsView() {
 
       {active && (
         <div className="mt-7">
-          {items.length > 0 ? (
+          {/* Don't show the previous shelf's titles (or its empty state) while
+              the newly-selected shelf is still loading. */}
+          {itemsLoading ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="aspect-[2/3] animate-pulse rounded-xl border border-line bg-surface-2"
+                />
+              ))}
+            </div>
+          ) : items.length > 0 ? (
             <>
               {active.description && (
                 <p className="mb-4 text-sm text-ink-soft">{active.description}</p>
@@ -168,7 +202,7 @@ export default function ListsView() {
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {items.map((item, i) => (
                   <PosterCard
-                    key={item.id}
+                    key={catalogKey(item)}
                     item={item}
                     index={i}
                     className="w-full"

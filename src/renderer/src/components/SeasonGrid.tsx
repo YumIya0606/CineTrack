@@ -30,15 +30,33 @@ export default function SeasonGrid({
   const [data, setData] = useState<SeasonInfo | null>(null)
   const [loading, setLoading] = useState(false)
 
+  // The grid stays mounted while the detail panel swaps between series, so the
+  // chosen season can outlive the previous show's option list. Re-clamp it.
+  const seasonCount = Math.max(1, seasonsTotal ?? 1)
+  const safeSeason = Math.min(season, seasonCount)
+
   useEffect(() => {
     if (!tmdbId) return
+    // Rapidly flipping the season picker issued overlapping requests, and a
+    // slower earlier response overwrote the newer one — the checkbox state
+    // and progress bar were then computed against the wrong season.
+    let cancelled = false
     setLoading(true)
     api.tmdb
-      .season(tmdbId, season)
-      .then(setData)
-      .catch(() => setData(null))
-      .finally(() => setLoading(false))
-  }, [tmdbId, season])
+      .season(tmdbId, safeSeason)
+      .then(d => {
+        if (!cancelled) setData(d)
+      })
+      .catch(() => {
+        if (!cancelled) setData(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tmdbId, safeSeason])
 
   if (!tmdbId) {
     return (
@@ -51,10 +69,7 @@ export default function SeasonGrid({
   const watchedSet = new Set(
     loggedEpisodes.map(e => `${e.season}-${e.episode}`)
   )
-  const seasonNumbers = Array.from(
-    { length: Math.max(1, seasonsTotal ?? 1) },
-    (_, i) => i + 1
-  )
+  const seasonNumbers = Array.from({ length: seasonCount }, (_, i) => i + 1)
 
   // Next unwatched episode within the loaded season.
   const nextUp = data?.episodes.find(e => !watchedSet.has(`${e.seasonNumber}-${e.episodeNumber}`))
@@ -69,7 +84,7 @@ export default function SeasonGrid({
     <div className="mt-5 rounded-2xl border border-line bg-surface/50 p-4">
       <div className="flex flex-wrap items-center gap-3">
         <select
-          value={season}
+          value={safeSeason}
           onChange={e => setSeason(Number(e.target.value))}
           className="no-drag cursor-pointer rounded-lg border border-line bg-surface px-3 py-1.5 text-xs text-ink-soft focus:border-gold focus:outline-none"
         >

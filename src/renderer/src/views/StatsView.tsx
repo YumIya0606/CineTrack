@@ -99,7 +99,15 @@ export default function StatsView() {
       {shareOpen && <ShareCard onClose={() => setShareOpen(false)} />}
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-        <StatCards stats={stats} />
+        {/*
+          The stat cards get their own full-width strip. They used to be
+          siblings of the charts inside one grid, so the fourth card wrapped to
+          the next row and stretched to the height of the genre chart beside it,
+          leaving a huge empty gap under the number.
+        */}
+        <div className="grid grid-cols-2 gap-5 md:grid-cols-4 xl:col-span-3">
+          <StatCards stats={stats} />
+        </div>
 
         <ChartCard title="Watch time by genre" className="md:col-span-2 xl:col-span-2">
           <ResponsiveContainer width="100%" height={260}>
@@ -163,7 +171,13 @@ export default function StatsView() {
                 tickLine={false}
                 axisLine={{ stroke: '#262b35' }}
               />
-              <YAxis stroke="#6d7186" fontSize={10.5} tickLine={false} axisLine={false} />
+              <YAxis
+                stroke="#6d7186"
+                fontSize={10.5}
+                tickLine={false}
+                axisLine={false}
+                allowDecimals={false}
+              />
               <Tooltip
                 cursor={{ fill: '#ffffff08' }}
                 contentStyle={tooltipStyle}
@@ -185,12 +199,20 @@ export default function StatsView() {
                 tickLine={false}
                 axisLine={{ stroke: '#262b35' }}
               />
-              <YAxis stroke="#6d7186" fontSize={10.5} tickLine={false} axisLine={false} />
-              <Tooltip
-                cursor={{ fill: '#ffffff08' }}
-                contentStyle={tooltipStyle}
-                formatter={v => [Number(v), 'Titles finished'] as [number, string]}
-              />
+<YAxis
+              stroke="#6d7186"
+              fontSize={10.5}
+              tickLine={false}
+              axisLine={false}
+              // Counts are whole titles; without this recharts invents
+              // fractional ticks (0.5 / 0.75) when the range is small.
+              allowDecimals={false}
+            />
+            <Tooltip
+              cursor={{ fill: '#ffffff08' }}
+              contentStyle={tooltipStyle}
+              formatter={v => [Number(v), 'Titles finished'] as [number, string]}
+            />
               <Bar dataKey="count" radius={[5, 5, 0, 0]} fill="#b07ce8" maxBarSize={34} />
             </BarChart>
           </ResponsiveContainer>
@@ -205,7 +227,11 @@ export default function StatsView() {
                   <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-3">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-gold-dim to-gold"
-                      style={{ width: `${(p.count / stats.topPeople[0]!.count) * 100}%` }}
+                      // Guard the max: a zero here produced a NaN% width, which
+                      // the CSS engine drops so every bar rendered full-width.
+                      style={{
+                        width: `${stats.topPeople[0]!.count > 0 ? (p.count / stats.topPeople[0]!.count) * 100 : 0}%`
+                      }}
                     />
                   </div>
                   <span className="w-6 shrink-0 text-right text-xs text-ink-dim">{p.count}</span>
@@ -269,7 +295,7 @@ function StatCards({ stats }: { stats: NonNullable<ReturnType<typeof useData.get
     {
       label: 'Watch time',
       value: formatTotalRuntime(stats.totalRuntimeMinutes),
-      sub: 'of completed content'
+      sub: 'of finished content'
     },
     { label: 'Average rating', value: stats.averageRating ? stats.averageRating.toFixed(1) : '—', sub: 'across rated titles' },
     { label: 'Completed', value: String(stats.completed), sub: `${stats.watching} watching · ${stats.planned} planned` }

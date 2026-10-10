@@ -21,6 +21,11 @@ function authInit(): { headers: Record<string, string>; params: Record<string, s
   return { headers: {}, params: v3 ? { api_key: v3 } : {} }
 }
 
+/** Every TMDB call is time-boxed. Node's fetch has no default timeout, so a
+ * stalled connection used to hold an IPC handler (and the UI awaiting it)
+ * open for minutes — and the notification sweep runs them serially. */
+const REQUEST_TIMEOUT_MS = 15000
+
 export async function tmdbFetch<T>(
   path: string,
   params: Record<string, string> = {}
@@ -31,7 +36,11 @@ export async function tmdbFetch<T>(
   for (const [k, v] of Object.entries(authParams)) url.searchParams.set(k, v)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
 
-  const res = await fetch(url, { method: 'GET', headers })
+  const res = await fetch(url, {
+    method: 'GET',
+    headers,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  })
   if (!res.ok) throw new Error(`TMDB ${res.status}: ${res.statusText}`)
   return (await res.json()) as T
 }
@@ -352,10 +361,11 @@ export async function discoverTmdb(
     sort_by: filters.sortBy ?? 'popularity.desc',
     'vote_count.gte': '50'
   }
-  if (filters.genreId) params['with_genres'] = String(filters.genreId)
+  if (filters.genreIds?.length) params['with_genres'] = filters.genreIds.join('|')
   if (filters.minRating !== undefined) params['vote_average.gte'] = String(filters.minRating)
   if (filters.fromYear) params[`${dateField}.gte`] = `${filters.fromYear}-01-01`
   if (filters.toYear) params[`${dateField}.lte`] = `${filters.toYear}-12-31`
+  if (filters.maxRuntime) params['with_runtime.lte'] = String(filters.maxRuntime)
 
   const path = kind === 'series' ? '/discover/tv' : '/discover/movie'
   const data = await tmdbFetch<TmdbDiscoverPage>(path, params)
@@ -368,10 +378,11 @@ export async function discoverTmdb(
 
 export interface DiscoverFilters {
   kind?: MediaKind
-  genreId?: number
+  genreIds?: number[]
   minRating?: number
   fromYear?: number
   toYear?: number
+  maxRuntime?: number
   sortBy?: string
 }
 

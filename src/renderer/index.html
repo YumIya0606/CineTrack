@@ -6,10 +6,21 @@
     <title>CineTrack</title>
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' https://image.tmdb.org data: blob:; connect-src 'self' https://api.themoviedb.org https://image.tmdb.org; font-src 'self' data: blob:; frame-src https://www.youtube-nocookie.com https://www.youtube.com; worker-src 'self' blob:"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' https://image.tmdb.org data: blob:; connect-src 'self' https://api.themoviedb.org https://image.tmdb.org; font-src 'self' data: blob:; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://vidlink.pro https://multiembed.mov; worker-src 'self' blob:"
     />
   </head>
   <body class="bg-canvas text-ink antialiased select-none overflow-hidden">
+    <!-- select-none on <body> is inherited by every control, which made it
+         impossible to select or copy from inputs (TMDB keys, notes, filters).
+         Re-enable it wherever the user actually types or reads text. -->
+    <style>
+      input,
+      textarea,
+      [contenteditable='true'] {
+        user-select: text;
+        -webkit-user-select: text;
+      }
+    </style>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -3,12 +3,14 @@ import { motion } from 'framer-motion'
 import { useUI, useData } from '../store'
 import { api } from '../lib/api'
 import { useTilt } from '../lib/use-tilt'
-import { formatTotalRuntime } from '@shared/utils'
+import { formatTotalRuntime, catalogKey } from '@shared/utils'
 import type { CatalogItem } from '@shared/types'
 import PosterCard from '../components/PosterCard'
+import Logo from '../components/Logo'
 
 export default function HomeView() {
   const setCommandOpen = useUI(s => s.setCommandOpen)
+  const setBulkOpen = useUI(s => s.setBulkOpen)
   const reduceMotion = useUI(s => s.reduceMotion)
   const library = useData(s => s.library)
   const stats = useData(s => s.stats)
@@ -54,20 +56,32 @@ export default function HomeView() {
   ]
 
   return (
-    <div className="min-h-full px-8 py-7">
+    <div className="min-h-full px-8 py-7" style={{ paddingLeft: 'var(--view-pad)', paddingRight: 'var(--view-pad)' }}>
       {/* Greeting header */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="mb-8"
+        className="mb-8 flex flex-wrap items-end justify-between gap-4"
       >
-        <h1 className="font-display text-3xl font-bold text-ink">{greeting}</h1>
-        <p className="mt-1.5 text-sm text-ink-soft">
-          {library.length > 0
-            ? `You have watched ${stats?.completed ?? 0} titles — ${formatTotalRuntime(stats?.totalRuntimeMinutes ?? 0)} of content.`
-            : 'Your library is empty. Search for a movie or series to begin.'}
-        </p>
+        <div>
+          <h1 className="font-display text-3xl font-bold text-ink">{greeting}</h1>
+          <p className="mt-1.5 text-sm text-ink-soft">
+            {library.length > 0
+              ? `You have watched ${stats?.completed ?? 0} titles — ${formatTotalRuntime(stats?.totalRuntimeMinutes ?? 0)} of content.`
+              : 'Your library is empty. Search for a movie or series to begin.'}
+          </p>
+        </div>
+        <button
+          onClick={() => setBulkOpen(true)}
+          className="flex items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-2.5 text-sm font-semibold text-gold transition hover:bg-gold/20"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+          Add watched history
+          <kbd className="rounded border border-gold/40 bg-black/30 px-1.5 py-0.5 text-[10px]">B</kbd>
+        </button>
       </motion.div>
 
       {/* Quick stats strip */}
@@ -84,7 +98,7 @@ export default function HomeView() {
         <Section title="Continue watching" subtitle="Pick up where you left off">
           <Row>
             {watching.slice(0, 8).map((item, i) => (
-              <PosterCard key={item.libraryId} item={item} index={i} className="w-[150px]" />
+              <PosterCard key={item.libraryId} item={item} index={i} style={{ width: "var(--poster-w)" }} />
             ))}
           </Row>
         </Section>
@@ -95,7 +109,7 @@ export default function HomeView() {
         <Section title="Your library" subtitle="Recently updated">
           <Row>
             {recent.map((item, i) => (
-              <PosterCard key={item.libraryId} item={item} index={i} className="w-[150px]" />
+              <PosterCard key={item.libraryId} item={item} index={i} style={{ width: "var(--poster-w)" }} />
             ))}
           </Row>
         </Section>
@@ -108,7 +122,7 @@ export default function HomeView() {
       >
         <Row>
           {trending.slice(0, 12).map((item, i) => (
-            <PosterCard key={item.id} item={item} index={i} className="w-[150px]" />
+            <PosterCard key={catalogKey(item)} item={item} index={i} style={{ width: "var(--poster-w)" }} />
           ))}
         </Row>
       </Section>
@@ -116,10 +130,8 @@ export default function HomeView() {
       {/* Empty state CTA */}
       {library.length === 0 && (
         <div className="mt-4 flex flex-col items-center gap-4 rounded-3xl border border-dashed border-line bg-surface/40 px-8 py-14 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-gold/90 to-gold-dim shadow-glow">
-            <svg viewBox="0 0 100 100" className="h-8 w-8">
-              <path d="M30 22 L30 78 L70 50 Z" fill="#0b0c0f" />
-            </svg>
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-[#1a1d25] to-[#0b0c0f] text-gold shadow-glow">
+            <Logo className="h-9 w-9" />
           </div>
           <div>
             <h3 className="font-display text-xl font-bold text-ink">Start your collection</h3>
@@ -155,7 +167,7 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className="mb-10">
+    <section className="mb-10" style={{ marginBottom: 'var(--section-gap)' }}>
       <div className="mb-4 flex items-baseline justify-between">
         <div>
           <h2 className="font-display text-lg font-bold text-ink">{title}</h2>
@@ -168,7 +180,14 @@ function Section({
 }
 
 function Row({ children }: { children: React.ReactNode }) {
-  return <div className="flex gap-4 overflow-x-auto pb-3 [scrollbar-width:thin]">{children}</div>
+  return (
+    <div
+      className="row-scroll flex overflow-x-auto pb-3"
+      style={{ gap: 'var(--row-gap)' }}
+    >
+      {children}
+    </div>
+  )
 }
 
 function StatCard({

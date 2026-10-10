@@ -1,6 +1,8 @@
 import { getDb, getRaw } from './index'
 import { catalog, library, episodeLog, settings } from './schema'
 import { eq, desc, asc, sql, and, inArray, isNull } from 'drizzle-orm'
+import { resolveStatus } from '@shared/status'
+import { derivableStatusKeys, watchTimeStatusKeys } from './statuses'
 import type {
   CatalogItem,
   LibraryItem,
@@ -38,6 +40,8 @@ function rowToLibrary(row: {
     ...rowToCatalog(row.catalog),
     libraryId: row.library.id,
     status: row.library.status as WatchStatus,
+    statusOverride: Boolean(row.library.statusOverride),
+    episodesRuntime: row.library.episodesRuntime ?? null,
     rating: row.library.rating ?? null,
     notes: row.library.notes ?? null,
     addedAt: row.library.addedAt,
@@ -65,20 +69,24 @@ export function searchCatalog(query: string, limit = 24): CatalogItem[] {
       .map(rowToCatalog)
   }
 
-  // Prefer FTS5 for prefix/prefix-token matching; fall back to LIKE for short queries.
-  const fts = getRaw().prepare(`
-    SELECT c.* FROM catalog_fts f
-    JOIN catalog c ON c.id = f.rowid
-    WHERE catalog_fts MATCH ?1
-    ORDER BY rank, c.popularity DESC
-    LIMIT ?2
-  `)
+  // Prefer FTS5 for prefix/prefix-token matching; fall back to LIKE for short
+  // queries. Better-sqlite3 binds numbered (?1/?2) parameters by NAME, so the
+  // values must be passed as {1: term, 2: limit} — passing them positionally
+  // threw a RangeError on every search, which the catch below swallowed, so
+  // the index was never used and every keystroke scanned the whole table.
   const term = q.endsWith('*') ? q : `${q}*`
   try {
-    const rows = fts.all(term, limit) as (typeof catalog.$inferSelect)[]
+    const fts = getRaw().prepare(`
+      SELECT c.* FROM catalog_fts f
+      JOIN catalog c ON c.id = f.rowid
+      WHERE catalog_fts MATCH ?1
+      ORDER BY rank, c.popularity DESC
+      LIMIT ?2
+    `)
+    const rows = fts.all({ 1: term, 2: limit }) as (typeof catalog.$inferSelect)[]
     if (rows.length > 0) return rows.map(rowToCatalog)
   } catch {
-    /* fall through to LIKE */
+    /* index missing or the query is malformed — fall through to LIKE */
   }
 
   const like = `%${q.replace(/[%_]/g, '')}%`
@@ -120,16 +128,45 @@ export function ensureCatalogItem(item: CatalogItem): CatalogItem {
   // Match by TMDB id first (stable across sessions), then by title+year.
   if (item.tmdbId) {
     const byTmdb = db.select().from(catalog).where(eq(catalog.tmdbId, item.tmdbId)).get()
-    if (byTmdb) return rowToCatalog(byTmdb)
+    if (byTmdb) {
+      // A row found by TMDB id may predate a runtime/episode enrichment, so
+      // fill the gaps rather than returning a permanently runtime-less row
+      // (a movie with no runtime contributes nothing to watch time).
+      if (
+        (item.runtimeMinutes && !byTmdb.runtimeMinutes) ||
+        (item.posterPath && !byTmdb.posterPath) ||
+        (item.overview && !byTmdb.overview)
+      ) {
+        db.update(catalog)
+          .set({
+            runtimeMinutes: item.runtimeMinutes ?? byTmdb.runtimeMinutes,
+            posterPath: item.posterPath ?? byTmdb.posterPath,
+            backdropPath: item.backdropPath ?? byTmdb.backdropPath,
+            overview: item.overview ?? byTmdb.overview,
+            voteAverage: item.voteAverage ?? byTmdb.voteAverage,
+            voteCount: item.voteCount ?? byTmdb.voteCount,
+            genres: item.genres.length ? item.genres.join('|') : byTmdb.genres
+          })
+          .where(eq(catalog.id, byTmdb.id))
+          .run()
+        return rowToCatalog(db.select().from(catalog).where(eq(catalog.id, byTmdb.id)).get()!)
+      }
+      return rowToCatalog(byTmdb)
+    }
   }
 
   const byTitle = db
     .select()
     .from(catalog)
     .where(
-      item.year != null
-        ? and(eq(catalog.title, item.title), eq(catalog.year, item.year))
-        : and(eq(catalog.title, item.title), isNull(catalog.year))
+      and(
+        eq(catalog.title, item.title),
+        // Without the kind, a movie and a series sharing a title+year collapse
+        // into one row and the stored kind wins — a series gets shelved as a
+        // movie.
+        eq(catalog.kind, item.kind),
+        item.year != null ? eq(catalog.year, item.year) : isNull(catalog.year)
+      )
     )
     .get()
   if (byTitle) {
@@ -193,18 +230,50 @@ export function listLibrary(): LibraryItem[] {
     .map(rowToLibrary)
 }
 
-export function addToLibrary(catalogId: number, status: WatchStatus): LibraryItem {
+export interface AddOptions {
+  /** Total episode count for a series — powers watch time + progress. */
+  episodesTotal?: number | null
+  seasonsTotal?: number | null
+  /** Override the watched stamp (bulk history imports spread dates). */
+  watchedAt?: string | null
+  /**
+   * Whether this add is an explicit, deliberate status choice. Default true —
+   * an explicit "mark watched" from search/detail pins the status. Bulk
+   * imports pass false for series so the progress engine still owns them.
+   */
+  statusOverride?: boolean
+}
+
+export function addToLibrary(
+  catalogId: number,
+  status: WatchStatus,
+  opts: AddOptions = {}
+): LibraryItem {
   const db = getDb()
-  const now = new Date().toISOString()
+  const now = opts.watchedAt ?? new Date().toISOString()
   const existing = db
     .select()
     .from(library)
     .where(eq(library.catalogId, catalogId))
     .get()
+  const override = opts.statusOverride !== false
 
   if (existing) {
     db.update(library)
-      .set({ status, updatedAt: now, watchedAt: status === 'completed' ? now : existing.watchedAt })
+      .set({
+        status,
+        updatedAt: now,
+        watchedAt: status === 'completed' ? now : existing.watchedAt,
+        statusOverride: override,
+        episodesTotal: opts.episodesTotal ?? existing.episodesTotal ?? null,
+        seasonsTotal: opts.seasonsTotal ?? existing.seasonsTotal ?? null,
+        // Marking a series complete without episode-by-episode logging means
+        // "I saw it all" — record the full run so progress and watch time
+        // both reflect that. Never clobber a real per-episode count.
+        ...(status === 'completed' && opts.episodesTotal && !existing.episodesWatched
+          ? { episodesWatched: opts.episodesTotal }
+          : {})
+      })
       .where(eq(library.id, existing.id))
       .run()
     return rowToLibrary(
@@ -218,6 +287,8 @@ export function addToLibrary(catalogId: number, status: WatchStatus): LibraryIte
   }
 
   const item = getCatalogItem(catalogId)
+  const isSeries = item?.kind === 'series'
+  const total = opts.episodesTotal ?? null
   const result = db
     .insert(library)
     .values({
@@ -226,7 +297,12 @@ export function addToLibrary(catalogId: number, status: WatchStatus): LibraryIte
       addedAt: now,
       updatedAt: now,
       watchedAt: status === 'completed' ? now : null,
-      seasonsTotal: item?.kind === 'series' ? null : null
+      statusOverride: override,
+      episodesTotal: total,
+      seasonsTotal: opts.seasonsTotal ?? null,
+      // A series shelved straight as completed carries no episode log; seed
+      // the progress bar at full so it isn't shown as 0/N watched.
+      episodesWatched: isSeries && status === 'completed' && total ? total : 0
     })
     .returning()
     .get()
@@ -243,7 +319,10 @@ export function addToLibrary(catalogId: number, status: WatchStatus): LibraryIte
 
 export function updateLibrary(
   libraryId: number,
-  patch: Partial<Pick<LibraryItem, 'status' | 'rating' | 'notes' | 'watchedAt'>>
+  patch: Partial<
+    Pick<LibraryItem, 'status' | 'rating' | 'notes' | 'watchedAt' | 'episodesTotal' | 'seasonsTotal' | 'episodesRuntime'>
+  >,
+  manualStatus: boolean = patch.status !== undefined
 ): void {
   const db = getDb()
   const now = new Date().toISOString()
@@ -251,6 +330,8 @@ export function updateLibrary(
     .set({
       ...patch,
       updatedAt: now,
+      // Picking a status by hand pins it against the progress engine.
+      ...(manualStatus ? { statusOverride: true } : {}),
       ...(patch.status === 'completed' && !patch.watchedAt ? { watchedAt: now } : {})
     })
     .where(eq(library.id, libraryId))
@@ -282,8 +363,40 @@ export function logEpisode(
       .from(episodeLog)
       .where(eq(episodeLog.libraryId, libraryId))
       .get()
+    const current = db.select().from(library).where(eq(library.id, libraryId)).get()
+    const logged = total?.count ?? 0
+
+    // A series shelved as completed in bulk carries a full count but no
+    // episode rows, so `logged` alone would collapse 20/20 down to 1/20 the
+    // moment the user ticks an episode. Never let the logged count go
+    // backwards.
+    const watched = Math.max(logged, current?.episodesWatched ?? 0)
+
+    // Series status follows progress unless the user pinned it by hand, so
+    // finishing the last episode completes the show automatically.
+    const catalogKind = db
+      .select({ kind: catalog.kind })
+      .from(catalog)
+      .where(eq(catalog.id, current!.catalogId))
+      .get()?.kind
+    const resolved = resolveStatus({
+      kind: catalogKind ?? 'series',
+      episodesWatched: watched,
+      episodesTotal: current?.episodesTotal ?? null,
+      statusOverride: current?.statusOverride ?? false,
+      currentStatus: current!.status,
+      requested: null,
+      derivableKeys: derivableStatusKeys()
+    })
+
     db.update(library)
-      .set({ episodesWatched: total?.count ?? 0, updatedAt: now, status: 'watching' })
+      .set({
+        episodesWatched: watched,
+        updatedAt: now,
+        status: resolved.status,
+        // Stamp the completion date the first time a show finishes.
+        ...(resolved.status === 'completed' && !current?.watchedAt ? { watchedAt: now } : {})
+      })
       .where(eq(library.id, libraryId))
       .run()
     return {
@@ -350,14 +463,40 @@ export function setSetting<T>(key: string, value: T): void {
 
 /* ---------- Stats ---------- */
 
+/**
+ * Watched minutes for one library row, as an SQL fragment.
+ *
+ * Movies contribute their runtime. Series have no single runtime of their
+ * own, so the total comes from the episode count (logged, or the series' full
+ * count) times the average episode runtime — which may come from the user's
+ * per-title override first. Only statuses the user has flagged
+ * `countsTowardWatchTime` contribute, so making a status count toward the
+ * total is a one-click setting change, not a code change.
+ *
+ * @param countingKeys status keys that count toward watch time.
+ */
+function watchedMinutesSql(countingKeys: string[]): string {
+  const inList = countingKeys.map(() => '?').join(', ') || "''"
+  return `
+  CASE WHEN l.status IN (${inList}) THEN
+    CASE WHEN c.kind = 'movie'
+      THEN COALESCE(c.runtime_minutes, 0)
+      ELSE COALESCE(NULLIF(l.episodes_watched, 0), l.episodes_total, 0)
+           * COALESCE(l.episodes_runtime, c.runtime_minutes, 0)
+    END
+  ELSE 0 END`
+}
+
 export function getStats(): Stats {
   const db = getDb()
   const raw = getRaw()
+  const countingKeys = [...watchTimeStatusKeys()]
+  const WATCHED_MINUTES = watchedMinutesSql(countingKeys)
 
   const totals = raw.prepare(`
     SELECT
       COUNT(*) AS total_titles,
-      COALESCE(SUM(CASE WHEN l.status='completed' THEN COALESCE(c.runtime_minutes,0) ELSE 0 END),0) AS completed_minutes,
+      COALESCE(SUM(${WATCHED_MINUTES}),0) AS completed_minutes,
       COUNT(CASE WHEN l.status='completed' THEN 1 END) AS completed,
       COUNT(CASE WHEN l.status='watching' THEN 1 END) AS watching,
       COUNT(CASE WHEN l.status='planned' THEN 1 END) AS planned,
@@ -366,7 +505,7 @@ export function getStats(): Stats {
       COUNT(CASE WHEN c.kind='movie' THEN 1 END) AS movies,
       COUNT(CASE WHEN c.kind='series' THEN 1 END) AS series
     FROM library l JOIN catalog c ON c.id = l.catalog_id
-  `).get() as {
+  `).get(...countingKeys) as {
     total_titles: number
     completed_minutes: number
     completed: number
@@ -378,13 +517,17 @@ export function getStats(): Stats {
     series: number
   }
 
+  // Titles added from a live TMDB search carry genre *ids*, not names, so their
+  // genres column is ''. Splitting that yields a single empty-string genre
+  // that renders as a blank bar and can push a real genre out of the top 12.
   const byGenre = raw.prepare(`
     SELECT g.value AS genre, COUNT(*) AS count,
-      SUM(CASE WHEN l.status='completed' THEN COALESCE(c.runtime_minutes,0) ELSE 0 END) AS minutes
+      SUM(${WATCHED_MINUTES}) AS minutes
     FROM library l JOIN catalog c ON c.id = l.catalog_id,
       json_each('["' || replace(c.genres,'|','","') || '"]') g
+    WHERE c.genres <> '' AND g.value <> ''
     GROUP BY g.value ORDER BY count DESC LIMIT 12
-  `).all() as { genre: string; count: number; minutes: number }[]
+  `).all(...countingKeys) as { genre: string; count: number; minutes: number }[]
 
   const byYear = raw.prepare(`
     SELECT c.year AS year, COUNT(*) AS count
@@ -392,12 +535,15 @@ export function getStats(): Stats {
     WHERE c.year IS NOT NULL GROUP BY c.year ORDER BY c.year ASC
   `).all() as { year: number; count: number }[]
 
+  // `decade` is not in the WHERE clause, so rows with an unknown year grouped
+  // under NULL and reached the chart as a nameless wedge. Filter on the
+  // grouped expression, not the source column.
   const byDecade = raw.prepare(`
-    SELECT (c.year/10)*10 AS decade, COUNT(*) AS count,
-      SUM(CASE WHEN l.status='completed' THEN COALESCE(c.runtime_minutes,0) ELSE 0 END) AS minutes
+    SELECT CAST((c.year / 10) * 10 AS INTEGER) AS decade, COUNT(*) AS count,
+      SUM(${WATCHED_MINUTES}) AS minutes
     FROM library l JOIN catalog c ON c.id = l.catalog_id
     WHERE c.year IS NOT NULL GROUP BY decade ORDER BY decade ASC
-  `).all() as { decade: number; count: number; minutes: number }[]
+  `).all(...countingKeys) as { decade: number; count: number; minutes: number }[]
 
   const topPeople = raw.prepare(`
     SELECT p.name AS name, p.role AS role, COUNT(DISTINCT l.catalog_id) AS count
@@ -411,11 +557,17 @@ export function getStats(): Stats {
     FROM library l WHERE l.rating IS NOT NULL GROUP BY l.rating ORDER BY l.rating ASC
   `).all() as { rating: number; count: number }[]
 
-  const monthlyActivity = raw.prepare(`
-    SELECT substr(l.watched_at,1,7) AS month, COUNT(*) AS count
-    FROM library l WHERE l.watched_at IS NOT NULL
-    GROUP BY month ORDER BY month ASC LIMIT 24
-  `).all() as { month: string; count: number }[]
+  // Keep the *newest* 24 months. ORDER BY month ASC took the oldest window
+  // instead, so any library older than two years showed a chart frozen in the
+  // past. Sort ascending afterwards so the chart still reads left-to-right.
+  const monthlyActivity = raw
+    .prepare(`
+      SELECT substr(l.watched_at,1,7) AS month, COUNT(*) AS count
+      FROM library l WHERE l.watched_at IS NOT NULL
+      GROUP BY month ORDER BY month DESC LIMIT 24
+    `)
+    .all() as { month: string; count: number }[]
+  monthlyActivity.reverse()
 
   void db
   void inArray

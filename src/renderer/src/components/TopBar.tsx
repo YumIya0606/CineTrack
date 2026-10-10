@@ -5,10 +5,12 @@ import { cn } from '../lib/utils'
 import { useEffect, useState } from 'react'
 import type { View } from '../store'
 import type { tmdbConfig } from '@shared/types'
+import Logo from './Logo'
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'discover', label: 'Discover' },
+  { id: 'board', label: 'Board' },
   { id: 'library', label: 'Library' },
   { id: 'watchlist', label: 'Watchlist' },
   { id: 'lists', label: 'Lists' },
@@ -21,8 +23,11 @@ export default function TopBar() {
   const setCommandOpen = useUI(s => s.setCommandOpen)
   const setSettingsOpen = useUI(s => s.setSettingsOpen)
   const library = useData(s => s.library)
+  const loadLibrary = useData(s => s.loadLibrary)
+  const loadStats = useData(s => s.loadStats)
   const notifications = useNotifications(s => s.notifications)
   const dismiss = useNotifications(s => s.dismiss)
+  const dismissAll = useNotifications(s => s.dismissAll)
   const loadNotifications = useNotifications(s => s.loadNotifications)
 
   const [tmdb, setTmdb] = useState<tmdbConfig | null>(null)
@@ -57,15 +62,14 @@ export default function TopBar() {
         <button
           onClick={() => setView('home')}
           title="CineTrack — Home"
-          className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-gold-dim shadow-glow transition hover:scale-105 hover:opacity-90"
+          className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-[#1a1d25] to-[#0b0c0f] text-gold shadow-glow transition hover:scale-105 hover:border-gold/40"
         >
-          <svg viewBox="0 0 100 100" className="h-5 w-5">
-            <path d="M30 22 L30 78 L70 50 Z" fill="#0b0c0f" />
-          </svg>
+          <Logo className="h-[22px] w-[22px]" />
         </button>
 
-        {/* Center tabs */}
-        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-white/10 bg-[#12141a]/80 px-1.5 py-1.5 backdrop-blur-xl">
+        {/* Center tabs — absolutely centered so the pill stays dead-center
+            regardless of how wide the left/right clusters get. */}
+        <div className="pointer-events-auto absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-full border border-white/10 bg-[#12141a]/80 px-1.5 py-1.5 backdrop-blur-xl">
           {VIEWS.map(v => (
             <button
               key={v.id}
@@ -131,12 +135,12 @@ export default function TopBar() {
                   <div className="flex items-center justify-between border-b border-line px-4 py-3">
                     <span className="text-xs font-semibold text-ink">Notifications</span>
                     {unread > 0 && (
-                      <button
-                        onClick={() => notifications.forEach(n => dismiss(n.id))}
-                        className="text-[10.5px] font-medium text-ink-dim transition hover:text-gold"
-                      >
-                        Clear all
-                      </button>
+<button
+                          onClick={() => dismissAll().catch(() => undefined)}
+                          className="text-[10.5px] font-medium text-ink-dim transition hover:text-gold"
+                        >
+                          Clear all
+                        </button>
                     )}
                   </div>
                   <div className="max-h-[300px] overflow-y-auto p-2">
@@ -237,7 +241,13 @@ export default function TopBar() {
       {/* Bottom-right: IMDb import */}
       <div className="pointer-events-none fixed bottom-5 right-5 z-20">
         <button
-          onClick={() => api.library.importImdb()}
+          onClick={async () => {
+            await api.library.importImdb()
+            // Import writes straight to the DB; without a reload every view
+            // would keep showing the pre-import library until restart.
+            await loadLibrary()
+            await loadStats()
+          }}
           title="Import your IMDb ratings export"
           className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-[#12141a]/80 px-3.5 py-2 text-xs font-medium text-ink-soft backdrop-blur-xl transition hover:border-gold/50 hover:text-gold"
         >
