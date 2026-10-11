@@ -15,16 +15,28 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
+      # Install with lifecycle scripts disabled, then run Electron's installer
+      # by hand.
+      #
+      # Why: better-sqlite3@13 ships a binding.gyp, and npm responds by
+      # shelling out to `node-gyp rebuild`. But that version already bundles
+      # working N-API binaries under prebuilds/ and loads them at runtime — no
+      # compilation is required. The compile only ever fails, because the
+      # hosted runner ships Visual Studio 18, which node-gyp 9.4.1 cannot
+      # detect ("could not find a version of Visual Studio 2017 or newer").
+      # Skipping scripts also avoids rebuilding sharp/esbuild, which we don't
+      # need here, and makes the install dramatically faster.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
-      # No electron-rebuild here on purpose: the unit tests run under Node, so
-      # they use the prebuilt better-sqlite3 binary npm already ships. Only the
-      # running Electron app needs the Electron-ABI rebuild, and that happens in
-      # `npm run package`.
+      # Electron's postinstall is the one script we actually need: it fetches
+      # the Electron binary, which the rest of the build depends on.
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
+
       - name: Lint
         run: npm run lint
 

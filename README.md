@@ -120,7 +120,32 @@ npm install
 npm run dev
 ```
 
-**Requirements:** Node.js 18+ and npm. Windows is the packaged target; macOS/Linux work with minor packaging changes.
+**Requirements:** **Node.js 22 or newer** and npm. Windows is the packaged target; macOS/Linux work with minor packaging changes.
+
+> [!IMPORTANT]
+> Node 22 is a hard requirement, not a suggestion. `better-sqlite3` (the database driver) declares `engines.node >= 22` and only publishes prebuilt binaries for that ABI. On Node 20 or older, `npm install` finds no matching prebuild, quietly falls back to compiling from source, and fails unless you have Visual Studio's C++ workload installed.
+
+<details>
+<summary><b>🛟 Troubleshooting</b></summary>
+
+**`npm error command ... node-gyp rebuild` / `could not find a version of Visual Studio 2017 or newer`**
+
+`better-sqlite3@13` ships a `binding.gyp`, so npm tries to compile it — even though that release already bundles working prebuilt binaries and needs no compilation at all. The build then fails whenever the installed Visual Studio is newer than what node-gyp recognises (a current machine reports VS 18; node-gyp 9 only looks for VS2017–2022).
+
+Skip the unnecessary native builds and fetch Electron's binary directly:
+
+```bash
+npm ci --ignore-scripts
+node node_modules/electron/install.js
+```
+
+This is exactly what CI does, and it is faster because it skips `sharp`, `esbuild`, and `lzma-native` too. If you hit it on an existing checkout, delete `node_modules` first.
+
+**Posters not appearing**
+
+Posters stream from the TMDB CDN and require a TMDB key in **Settings → Catalog**. Without one, CineTrack falls back to generated artwork. If a title shows a placeholder even with a key, run **Settings → Data → Recalculate watch time**, which re-fetches the missing metadata.
+
+</details>
 
 ### Build the Windows installer
 

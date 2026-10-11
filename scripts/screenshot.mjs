@@ -115,9 +115,10 @@ async function run() {
   await sleep(800)
 
   const shoot = async name => {
-    // Posters are lazily loaded from the TMDB CDN; capturing too early yields
-    // blank tiles that look like broken artwork in the docs.
-    await sleep(2000)
+    // Posters are lazily loaded from the TMDB CDN. Capturing too early yields
+    // tiles that look like broken artwork even though the <img> has already
+    // decoded (verified via naturalWidth), so wait generously.
+    await sleep(4000)
     const img = await win.webContents.capturePage()
     writeFileSync(join(OUT, `${name}.png`), img.toPNG())
     console.log('captured', name)
