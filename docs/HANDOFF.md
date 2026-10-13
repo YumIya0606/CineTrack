@@ -168,24 +168,30 @@ the provider, because the user calibrates it.
       the provider was verified by hand, but the full watch flow has not been
       exercised against a live stream yet.
 
-### Phase C — TMDB feature gaps — ⚙️ **ENDPOINTS READY, UI NOT BUILT**
+### Phase C — TMDB feature gaps ✅ **SHIPPED** (one item left)
 
-Endpoints and IPC channels exist; the views that consume them do not.
-See `docs/TMDB-ENDPOINT-MAP.md`.
-
-- [ ] Person pages (`api.tmdb.person`) — the `people` table has a
-      `tmdb_person_id` column nothing populates; this finally fills it
-- [ ] Collection / franchise pages (`api.tmdb.collection`)
-- [ ] Discovery rows: Top Rated, In Theatres, Coming Soon, Airing Today/This Week,
-      Trending (day / movie / tv separately)
-- [ ] Import by IMDb ID (`api.tmdb.findImdb`) — pairs with the IMDb CSV importer
-- [ ] Episode-group awareness in SeasonGrid (`api.tmdb.episodeGroups`) for
-      scene-vs-absolute numbering
-- [ ] Link to collection/person from DetailPanel
+- [x] `ChartRows` — trending / top rated / in theatres / coming soon for
+      movies; trending / top rated / airing this week for series. Rendered as
+      compact horizontal strips above the filterable grid, and they step aside
+      as soon as a filter is set.
+- [x] `PersonModal` — filmography from `combined_credits`, reachable by
+      clicking any cast or crew name in the detail panel.
+- [x] `CollectionModal` — franchise parts in release order, numbered.
+      Reachable from the "Part of a collection" link.
+- [x] `LivePerson.personId` and `LiveDetails.collection` added — without the
+      id a person was just a name with nowhere to go.
+- [x] `summaryToItem` in `shared/utils` — one place that converts credit
+      summaries into renderable catalog items.
+- [ ] **Import by IMDb ID in the UI.** `api.tmdb.findImdb` works over IPC but
+      no screen calls it; the IMDb CSV importer still matches on title.
+      This is the last unused endpoint worth exposing.
 
 ### Phase D — UI polish
 
 Standing list; see `docs/UI-AUDIT.md`.
+
+Verified by screenshot after the chart work: rows render live against TMDB,
+load independently, and blank out individually on failure.
 
 ---
 
