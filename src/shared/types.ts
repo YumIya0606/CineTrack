@@ -194,10 +194,18 @@ export interface tmdbConfig {
 }
 
 export interface LivePerson {
+  /** TMDB person id — needed to open that person's page. */
+  personId: number
   name: string
   character: string | null
   job: string | null
   profilePath: string | null
+}
+
+/** A franchise the title belongs to, as returned by TMDB. */
+export interface LiveCollectionRef {
+  id: number
+  name: string
 }
 
 export interface LiveDetails extends CatalogItem {
@@ -207,6 +215,8 @@ export interface LiveDetails extends CatalogItem {
   cast: LivePerson[]
   crew: LivePerson[]
   similar: CatalogItem[]
+  /** Franchise this title belongs to, when TMDB knows of one. */
+  collection: LiveCollectionRef | null
 }
 
 export interface VideoInfo {

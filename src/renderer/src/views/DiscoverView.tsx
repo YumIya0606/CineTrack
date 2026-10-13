@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { useUI, useData } from '../store'
 import { cn } from '../lib/utils'
 import PosterCard from '../components/PosterCard'
+import { ChartRows } from '../components/ChartRows'
 import type { CatalogItem, MediaKind, Genre, DiscoverFilters } from '@shared/types'
 
 const SORTS = [
@@ -53,6 +54,10 @@ export default function DiscoverView() {
   const [fromYear, setFromYear] = useState<number | undefined>(undefined)
   const [toYear, setToYear] = useState<number | undefined>(undefined)
   const [sortBy, setSortBy] = useState('popularity.desc')
+  // Charts add a dozen network calls, so they are opt-out and hidden whenever
+  // the user is actually filtering — otherwise the grid the user asked for is
+  // pushed a full screen down by suggestions they didn't request.
+  const [showCharts, setShowCharts] = useState(true)
   const [items, setItems] = useState<CatalogItem[]>([])
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -144,6 +149,23 @@ export default function DiscoverView() {
           Browse the full catalog by genre, rating, and era
         </p>
       </motion.div>
+
+      {/* Curated charts sit above the filterable grid: they answer "what should
+          I watch" before the user has committed to any filter at all. */}
+      {showCharts && activeFilters === 0 && (
+        <div className="mb-2">
+          <ChartRows kind={kind} />
+        </div>
+      )}
+
+      {activeFilters > 0 && showCharts && (
+        <button
+          onClick={() => setShowCharts(false)}
+          className="mb-5 text-xs text-ink-dim transition hover:text-gold"
+        >
+          Show suggestions above filtered results
+        </button>
+      )}
 
       {/* Filter bar */}
       <div className="mb-7 flex flex-wrap items-center gap-2.5 rounded-2xl border border-line bg-surface/60 p-3 backdrop-blur-sm">

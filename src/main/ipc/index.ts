@@ -213,6 +213,7 @@ export function registerIpcHandlers(): void {
         .sort((a, b) => a.order - b.order)
         .slice(0, 14)
         .map(c => ({
+          personId: c.id,
           name: c.name,
           character: c.character,
           job: null,
@@ -222,6 +223,7 @@ export function registerIpcHandlers(): void {
         .filter(c => c.job === 'Director' || c.job === 'Creator' || c.job === 'Writer')
         .slice(0, 6)
         .map(c => ({
+          personId: c.id,
           name: c.name,
           character: null,
           job: c.job,
@@ -231,7 +233,12 @@ export function registerIpcHandlers(): void {
         .slice(0, 10)
         .map(r =>
           tmdbToCatalog(r, (r.media_type === 'tv' ? 'series' : 'movie') as MediaKind)
-        )
+        ),
+      // Lets the detail panel link out to the rest of a franchise, which is how
+      // people actually consume series: one film at a time, in order.
+      collection: d.belongs_to_collection
+        ? { id: d.belongs_to_collection.id, name: d.belongs_to_collection.name }
+        : null
     }
     return detail
   })

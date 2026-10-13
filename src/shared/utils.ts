@@ -1,3 +1,5 @@
+import type { CatalogItem, MediaKind } from './types'
+
 export const posterUrl = (
   posterPath: string | null,
   size: 'w185' | 'w342' | 'w500' | 'original' = 'w342'
@@ -129,6 +131,40 @@ export function catalogKey(item: {
   if (item.tmdbId) return `t${item.tmdbId}`
   if (item.id) return `d${item.id}`
   return `s${item.title.toLowerCase()}:${item.year ?? 0}`
+}
+
+/**
+ * Turns a lightweight credit/collection summary into something the poster grid
+ * and detail panel can render. `id` is 0 on purpose: these come from TMDB, not
+ * the local catalog, and must be resolved through `openDetail` rather than
+ * looked up in a library row that may not exist.
+ */
+export function summaryToItem(s: {
+  id: number
+  title: string
+  kind: MediaKind
+  year: number | null
+  posterPath: string | null
+  voteAverage: number | null
+}): CatalogItem {
+  return {
+    id: 0,
+    tmdbId: s.id,
+    imdbId: null,
+    title: s.title,
+    originalTitle: null,
+    kind: s.kind,
+    year: s.year,
+    endYear: null,
+    genres: [],
+    runtimeMinutes: null,
+    voteAverage: s.voteAverage,
+    voteCount: null,
+    overview: null,
+    posterPath: s.posterPath,
+    backdropPath: null,
+    popularity: null
+  }
 }
 
 /** Deterministic 32-bit string hash (FNV-1a) — seeds stable pseudo-randomness. */

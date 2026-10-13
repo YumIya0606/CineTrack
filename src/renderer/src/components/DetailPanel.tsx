@@ -10,6 +10,7 @@ import SeasonGrid from './SeasonGrid'
 import TrailerModal from './TrailerModal'
 import WatchModal from './WatchModal'
 import ListPicker from './ListPicker'
+import { PersonModal, CollectionModal } from './BrowseModals'
 import { api } from '../lib/api'
 
 function isLibraryItem(item: unknown): item is {
@@ -74,6 +75,10 @@ export default function DetailPanel() {
   const [viewings, setViewings] = useState<ViewingEntry[]>([])
   const [trailerOpen, setTrailerOpen] = useState(false)
   const [watchOpen, setWatchOpen] = useState(false)
+  // Drill-downs opened from the detail panel: a person, or the franchise the
+  // title belongs to.
+  const [personId, setPersonId] = useState<number | null>(null)
+  const [collectionId, setCollectionId] = useState<number | null>(null)
   const loadCollections = useCollections(s => s.loadCollections)
   const bumpItems = useCollections(s => s.bumpItems)
   const [containedIn, setContainedIn] = useState<number[]>([])
@@ -394,6 +399,7 @@ const confirmDate = async () => {
   const displayRating = hoverRating ?? rating
 
   return (
+    <>
     <AnimatePresence>
       {item && (
         <motion.div
@@ -575,13 +581,14 @@ const confirmDate = async () => {
               {live && live.crew.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2 text-xs text-ink-soft">
                   {live.crew.map(c => (
-                    <span
-                      key={`${c.name}-${c.job}`}
-                      className="rounded-full border border-line bg-surface px-2.5 py-1"
+                    <button
+                      key={`${c.personId}-${c.name}`}
+                      onClick={() => setPersonId(c.personId)}
+                      className="rounded-full border border-line bg-surface px-2.5 py-1 transition hover:border-gold/50 hover:text-gold"
                     >
                       <span className="text-ink-dim">{c.job}: </span>
                       {c.name}
-                    </span>
+                    </button>
                   ))}
                 </div>
               )}
@@ -591,8 +598,13 @@ const confirmDate = async () => {
                   <Label>Cast</Label>
                   <div className="row-scroll mt-3 flex gap-3 overflow-x-auto pb-2">
                     {live.cast.map(c => (
-                      <div key={c.name} className="w-[72px] shrink-0 text-center">
-                        <div className="aspect-square overflow-hidden rounded-full border border-line bg-surface-2">
+                      <button
+                        key={`${c.personId}-${c.name}`}
+                        onClick={() => setPersonId(c.personId)}
+                        className="group w-[72px] shrink-0 text-center"
+                        title={`More about ${c.name}`}
+                      >
+                        <div className="aspect-square overflow-hidden rounded-full border border-line bg-surface-2 transition group-hover:border-gold/60">
                           {c.profilePath ? (
                             <img
                               src={profileUrl(c.profilePath, 'w185') ?? undefined}
@@ -610,16 +622,31 @@ const confirmDate = async () => {
                             </div>
                           )}
                         </div>
-                        <div className="mt-1.5 truncate text-[10.5px] font-medium text-ink">
+                        <div className="mt-1.5 truncate text-[10.5px] font-medium text-ink group-hover:text-gold">
                           {c.name}
                         </div>
                         {c.character && (
                           <div className="truncate text-[9.5px] text-ink-dim">{c.character}</div>
                         )}
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
+              )}
+
+              {live && live.collection && (
+                <button
+                  onClick={() => setCollectionId(live.collection!.id)}
+                  className="mt-6 flex w-full items-center gap-3 rounded-xl border border-line bg-surface p-3 text-left transition hover:border-gold/40"
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+                    Part of a collection
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+                    {live.collection.name}
+                  </span>
+                  <span className="shrink-0 text-ink-dim">&rarr;</span>
+                </button>
               )}
 
               {/* Where to watch */}
@@ -918,6 +945,29 @@ const confirmDate = async () => {
         />
       )}
     </AnimatePresence>
+
+      {personId !== null && (
+        <PersonModal
+          personId={personId}
+          onClose={() => setPersonId(null)}
+          onPick={c => {
+            setPersonId(null)
+            openDetail(c)
+          }}
+        />
+      )}
+
+      {collectionId !== null && (
+        <CollectionModal
+          collectionId={collectionId}
+          onClose={() => setCollectionId(null)}
+          onPick={c => {
+            setCollectionId(null)
+            openDetail(c)
+          }}
+        />
+      )}
+    </>
   )
 }
 
