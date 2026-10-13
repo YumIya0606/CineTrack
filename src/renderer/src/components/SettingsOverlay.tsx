@@ -6,6 +6,7 @@ import { cn } from '../lib/utils'
 import { ACCENTS, applyAccent, applyDensity } from '../lib/theme'
 import type { Density } from '../lib/theme'
 import StatusPaletteManager from './StatusPaletteManager'
+import { SUB_LANGUAGES, DEFAULT_SUB_LANGUAGE } from '../lib/languages'
 import type { Quality, tmdbConfig } from '@shared/types'
 
 type Tab = 'catalog' | 'statuses' | 'appearance' | 'playback' | 'data'
@@ -43,6 +44,12 @@ export default function SettingsOverlay() {
   const [runtimeMsg, setRuntimeMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Subtitle preferences
+  const [subLang, setSubLang] = useState(DEFAULT_SUB_LANGUAGE)
+  const [subLangOff, setSubLangOff] = useState(false)
+  const [osKey, setOsKey] = useState('')
+  const [subCache, setSubCache] = useState({ files: 0, bytes: 0 })
+
   useEffect(() => {
     if (!open) return
     api.tmdb.status().then(setTmdb)
@@ -72,7 +79,21 @@ export default function SettingsOverlay() {
       .catch(() => {
         /* an older main build without the channel just shows empty state */
       })
+
+    api.settings.get<string>('subtitles.language').then(l => l && setSubLang(l))
+    api.settings.get<boolean>('subtitles.defaultOff').then(v => v !== null && setSubLangOff(v))
+    api.settings.get<string>('subtitles.opensubtitlesKey').then(k => k && setOsKey(k))
+    api.subtitles.stats().then(setSubCache).catch(() => undefined)
   }, [open])
+
+  // Subtitle settings save immediately — they are playback preferences, not
+  // credentials, and a user changing language shouldn't need to hit Save.
+  useEffect(() => {
+    if (!open) return
+    api.settings.set('subtitles.language', subLang).catch(() => undefined)
+    api.settings.set('subtitles.defaultOff', subLangOff).catch(() => undefined)
+    api.settings.set('subtitles.opensubtitlesKey', osKey.trim() || null).catch(() => undefined)
+  }, [open, subLang, subLangOff, osKey])
 
   const handleSave = async () => {
     await api.settings.set('tmdb.readToken', readToken.trim() || null)
@@ -505,6 +526,81 @@ export default function SettingsOverlay() {
                         playing, switch to another in the watch window. Providers that set
                         anti-framing headers are filtered out automatically.
                       </p>
+                    </section>
+
+                    <section>
+                      <SectionLabel>Subtitles</SectionLabel>
+                      <p className="mt-1.5 text-xs leading-relaxed text-ink-dim">
+                        Subtitles are fetched on demand and cached locally, so they work offline
+                        and never cost you a second download. Because the streaming embed doesn't
+                        expose a readable player clock, timing is calibrated by you — press
+                        <strong className="mx-1 text-ink-soft">Sync</strong> in the watch window
+                        when a line you recognise appears, and everything realigns from there.
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <select
+                          value={subLang}
+                          onChange={e => setSubLang(e.target.value)}
+                          className="no-drag cursor-pointer rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-soft focus:border-gold focus:outline-none"
+                        >
+                          {SUB_LANGUAGES.map(l => (
+                            <option key={l.code} value={l.code} className="bg-surface text-ink">
+                              {l.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => setSubLangOff(v => !v)}
+                          className={cn(
+                            'rounded-lg border px-3 py-2 text-xs font-medium transition',
+                            !subLangOff
+                              ? 'border-gold/60 bg-gold/15 text-gold'
+                              : 'border-line bg-surface text-ink-soft hover:border-gold/40'
+                          )}
+                        >
+                          {subLangOff ? 'Overlay off by default' : 'Overlay on by default'}
+                        </button>
+                      </div>
+
+                      <input
+                        type="password"
+                        value={osKey}
+                        onChange={e => setOsKey(e.target.value)}
+                        placeholder="OpenSubtitles API key (optional — a larger catalogue)"
+                        className="no-drag mt-2.5 w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:border-gold focus:outline-none"
+                      />
+                      <p className="mt-2 text-[10.5px] leading-relaxed text-ink-dim">
+                        Leave blank to use the built-in provider, which needs no account. Add a
+                        free OpenSubtitles key for a much larger catalogue. Your key stays on this
+                        machine and is never sent anywhere except OpenSubtitles.
+                      </p>
+
+                      <div className="mt-3 flex items-center gap-2">
+                        <span className="text-[11px] text-ink-dim">
+                          {subCache.files > 0
+                            ? `${subCache.files} cached ${subCache.files === 1 ? 'track' : 'tracks'} · ${(subCache.bytes / 1024).toFixed(0)} KB`
+                            : 'No subtitles cached yet'}
+                        </span>
+                        <button
+                          onClick={async () => {
+                            setBusy(true)
+                            try {
+                              const res = await api.subtitles.clear()
+                              setSubCache(await api.subtitles.stats())
+                              setAutoMsg?.(`Cleared ${res.files} cached ${res.files === 1 ? 'track' : 'tracks'}.`)
+                            } catch (e) {
+                              setAutoMsg?.((e as Error).message)
+                            } finally {
+                              setBusy(false)
+                            }
+                          }}
+                          disabled={busy || subCache.files === 0}
+                          className="ml-auto rounded-lg border border-line bg-surface px-3 py-1.5 text-[11px] font-medium text-ink-soft transition hover:border-crimson/40 hover:text-crimson disabled:opacity-40"
+                        >
+                          Clear cache
+                        </button>
+                      </div>
                     </section>
                   </>
                 )}

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../lib/api'
 import type { SubtitleCandidate, SubtitleCue, SubtitleTrack } from '../lib/api'
 import { cn } from '../lib/utils'
+import { SUB_LANGUAGES } from '../lib/languages'
 
 interface SubtitleOverlayProps {
   tmdbId: number
@@ -13,6 +14,10 @@ interface SubtitleOverlayProps {
   /** Wall-clock seconds since the user started playback. */
   position: number
   visible: boolean
+  /** Preferred subtitle language (BCP-47-ish 2-letter code). */
+  language: string
+  onLanguageChange?: (code: string) => void
+  onVisibilityChange?: (on: boolean) => void
 }
 
 /**
@@ -26,7 +31,17 @@ interface SubtitleOverlayProps {
  * accurate than trusting the provider, rather than less.
  */
 export default function SubtitleOverlay(props: SubtitleOverlayProps) {
-  const { tmdbId, imdbId, kind, season, episode, position, visible } = props
+  const {
+    tmdbId,
+    imdbId,
+    kind,
+    season,
+    episode,
+    position,
+    visible,
+    language,
+    onLanguageChange
+  } = props
 
   const [track, setTrack] = useState<SubtitleTrack | null>(null)
   const [offset, setOffset] = useState(0)
@@ -34,7 +49,6 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
   const [candidates, setCandidates] = useState<SubtitleCandidate[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [language, setLanguage] = useState('en')
 
   // Offset is per (title, episode) so calibration survives a rewatch.
   const offsetKey = `cinetrack.sub-offset.${tmdbId}.${season ?? 'm'}.${episode ?? 'm'}`
@@ -232,19 +246,14 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
               <div className="flex items-center gap-1.5">
                 <select
                   value={language}
-                  onChange={e => setLanguage(e.target.value)}
+                  onChange={e => onLanguageChange?.(e.target.value)}
                   className="no-drag cursor-pointer rounded-lg border border-line bg-surface px-2 py-1 text-[11px] text-ink-soft focus:border-gold focus:outline-none"
                 >
-                  <option value="en" className="bg-surface text-ink">English</option>
-                  <option value="es" className="bg-surface text-ink">Spanish</option>
-                  <option value="hi" className="bg-surface text-ink">Hindi</option>
-                  <option value="ja" className="bg-surface text-ink">Japanese</option>
-                  <option value="ko" className="bg-surface text-ink">Korean</option>
-                  <option value="fr" className="bg-surface text-ink">French</option>
-                  <option value="de" className="bg-surface text-ink">German</option>
-                  <option value="pt" className="bg-surface text-ink">Portuguese</option>
-                  <option value="ta" className="bg-surface text-ink">Tamil</option>
-                  <option value="te" className="bg-surface text-ink">Telugu</option>
+                  {SUB_LANGUAGES.map(l => (
+                    <option key={l.code} value={l.code} className="bg-surface text-ink">
+                      {l.label}
+                    </option>
+                  ))}
                 </select>
                 <button
                   onClick={() => setPickerOpen(false)}

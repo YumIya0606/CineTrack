@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '../lib/utils'
+import { api } from '../lib/api'
 import { getResumePoint, saveResumePoint, clearResumePoint } from '../lib/watch-progress'
 import SubtitleOverlay from './SubtitleOverlay'
 import type { MediaKind } from '@shared/types'
@@ -86,8 +87,33 @@ export default function WatchModal({
   // it with one-click sync.
   const [position, setPosition] = useState(0)
   const [subtitlesOn, setSubtitlesOn] = useState(false)
+  const [subtitleLang, setSubtitleLang] = useState('en')
   const clockRef = useRef<number | null>(null)
   const startedAt = useRef<number>(Date.now())
+
+  // Honour the saved default, and remember a language choice made in the picker.
+  useEffect(() => {
+    if (tmdbId === null) return
+    let cancelled = false
+    Promise.all([
+      api.settings.get<boolean>('subtitles.defaultOff'),
+      api.settings.get<string>('subtitles.language')
+    ])
+      .then(([off, lang]) => {
+        if (cancelled) return
+        setSubtitlesOn(off !== true)
+        if (lang) setSubtitleLang(lang)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [tmdbId])
+
+  const persistSubPrefs = (lang: string, on: boolean) => {
+    api.settings.set('subtitles.language', lang).catch(() => undefined)
+    api.settings.set('subtitles.defaultOff', !on).catch(() => undefined)
+  }
 
   const source = SOURCES.find(s => s.id === sourceId)!
   const seasonCount = Math.max(1, seasonsTotal ?? 1)
@@ -410,6 +436,15 @@ export default function WatchModal({
               episode={kind === 'series' ? episode : null}
               position={position}
               visible={subtitlesOn && !loading}
+              language={subtitleLang}
+              onLanguageChange={lang => {
+                setSubtitleLang(lang)
+                persistSubPrefs(lang, subtitlesOn)
+              }}
+              onVisibilityChange={on => {
+                setSubtitlesOn(on)
+                persistSubPrefs(subtitleLang, on)
+              }}
             />
           )}
         </div>
@@ -419,18 +454,6 @@ export default function WatchModal({
             <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
             Ad blocker on
           </span>
-          <button
-            onClick={() => setSubtitlesOn(v => !v)}
-            className={cn(
-              'rounded-full border px-2 py-0.5 transition',
-              subtitlesOn
-                ? 'border-gold/50 bg-gold/15 text-gold'
-                : 'border-line bg-surface text-ink-soft hover:border-gold/40 hover:text-ink'
-            )}
-            title="Toggle the subtitle overlay"
-          >
-            Subtitles {subtitlesOn ? 'on' : 'off'}
-          </button>
           <span>Streams come from third-party providers. If one fails, switch sources above.</span>
         </div>
       </motion.div>

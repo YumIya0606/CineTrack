@@ -110,65 +110,78 @@ command palette, keyboard shortcuts, dark gold-on-charcoal cinematic UI.
 
 ## 5. Open work — the roadmap
 
-### Phase A — IMDb ID plumbing ✅ *(do first, unblocks subtitles)*
+### Phase A — IMDb ID plumbing ✅ **SHIPPED**
 
-**Why:** every subtitle API keys on IMDb ID. `tmdbToCatalog` currently hardcodes
-`imdbId: null` (`main/tmdb/client.ts:124`), so **subtitle lookup is impossible today**.
+**Why:** every subtitle API keys on IMDb ID. `tmdbToCatalog` used to hardcode
+`imdbId: null`, so **subtitle lookup was impossible**.
 
 - [x] `detailsTmdb()` → append `external_ids` to `append_to_response`
 - [x] `tmdbToCatalog()` → read `external_ids.imdb_id`
-- [x] `ensureCatalogItem()` → persist `imdbId` (already supported; verify)
-- [x] Backfill existing library rows (`backfillRuntimes` → also fill IMDb IDs)
-- [x] Surface "recalculate" button label to mention IMDb too
+- [x] `backfillRuntimes()` → also repairs missing IMDb IDs
+- **For an existing library:** Settings → Data → *Recalculate watch time* fills
+      both runtimes and IMDb IDs.
 
-### Phase B — Subtitle engine
+### Phase B — Subtitle engine ✅ **ENGINE SHIPPED** (UI wired, needs a live run)
 
-**Architecture decision (verified empirically, do not re-litigate):**
+**Architecture decision (verified empirically — do not re-litigate):**
 
-The player is a `<webview>` on third-party embeds. Verified by probing:
+The player is a `<webview>` on third-party embeds. Probed:
 
 ```
 vidsrc.to  → top document: 0 <video>, 5 iframes
-  └─ vsembed.ru/embed/movie/603
-       └─ stellarconductornexus.com/embed/movie/603 → 0 <video>, 0 iframes
+  └─ vsembed.ru       → 0 <video>
+       └─ stellarconductornexus.com → 0 <video>, 0 iframes
 ```
 
-Chrome DevTools Protocol attach: **OK**, but after a play attempt the page served
-empty content and **0 media requests** were observed. Therefore:
+Chrome DevTools Protocol attaches fine, but after a play attempt the page serves
+empty content and **0 media requests** are observed. Therefore:
 
 - ❌ Cannot inject a native `<track>`
 - ❌ Cannot read `currentTime` for exact sync
 - ❌ Cannot extract the stream URL
 - ✅ **Can** render our own overlay layer above the webview
 
-So subtitles = fetch + parse + render overlay, driven by wall-clock, with
-**one-click sync** as the accuracy mechanism (user pins a cue they recognise to
-"now"; everything realigns). This is *more* reliable than relying on the
-provider's player because the user calibrates it.
+So subtitles = fetch + parse + render overlay, driven by a wall clock
+(`WatchModal` owns it), calibrated by the user. **One-click sync is the accuracy
+mechanism** — press **Sync** when a line you recognise is on screen and that cue
+is pinned to "now", rewriting the offset. This is *more* reliable than trusting
+the provider, because the user calibrates it.
 
-**Verified subtitle sources** (tested live, 2026-10):
+**Verified subtitle sources** (tested live):
 
 | Source | Auth | Limits | Status |
 |---|---|---|---|
-| `subtitles.website` | none for search | 10/day guest, 50 registered, 1000 VIP | ✅ works |
-| OpenSubtitles v1 (`api.opensubtitles.com/api/v1`) | `Api-Key` header + optional Bearer | 5/day anon, 20/day free account | ✅ docs verified, needs user key |
+| `subtitles.website` | none for search | 10/day guest, 50 registered, 1000 VIP | ✅ wired, **default** |
+| OpenSubtitles v1 | `Api-Key` header + optional Bearer | 5/day anon, 20/day free account | ✅ client implemented; needs the user's key in Settings → Playback |
 | Podnapisi | — | — | ❌ **dead** (DNS fail / 404) |
 
-- [x] `main/subtitles/client.ts` — provider adapters, timeouts, SRT+VTT parse
-- [x] Local cache under `%APPDATA%/CineTrack/data/subtitles/`
-- [x] IPC: `SUBTITLES_SEARCH`, `SUBTITLES_LOAD`, `SUBTITLES_CLEAR_CACHE`
-- [x] Settings → Playback: language (default **English**), source, OpenSubtitles key
-- [x] `WatchModal`: CC button, candidate picker (best match by year + runtime)
-- [x] Overlay renderer + per-title offset slider (persisted)
-- [x] **One-click sync** — press `S`, current cue is pinned to "now"
-- [x] Remember preferred language globally
+**Files:**
+- `main/subtitles/parse.ts` — pure parser + `toWebVtt` (11 tests)
+- `main/subtitles/client.ts` — providers, cache, ranking
+- `renderer/components/SubtitleOverlay.tsx` — overlay + picker + offset + Sync
 
-### Phase C — TMDB feature gaps
+**Remaining for Phase B:**
+- [ ] Set an OpenSubtitles key in Settings → Playback (UI + `get`/`set`)
+- [ ] Add subtitle language + source preferences to Settings → Playback
+- [ ] "Clear subtitle cache" button
+- [ ] **Verify end to end in a running app** — the engine is unit-tested and
+      the provider was verified by hand, but the full watch flow has not been
+      exercised against a live stream yet.
 
-See `docs/TMDB-ENDPOINT-MAP.md` for the full audit. Summary of unused endpoints:
-person pages, collections/franchises, `trending/{day,media}`, `top_rated`,
-`now_playing`, `upcoming`, `tv/day`, `tv/week`, `images`, `episode_groups`,
-`search/collection`, `search/person`, `find/{imdb_id}`.
+### Phase C — TMDB feature gaps — ⚙️ **ENDPOINTS READY, UI NOT BUILT**
+
+Endpoints and IPC channels exist; the views that consume them do not.
+See `docs/TMDB-ENDPOINT-MAP.md`.
+
+- [ ] Person pages (`api.tmdb.person`) — the `people` table has a
+      `tmdb_person_id` column nothing populates; this finally fills it
+- [ ] Collection / franchise pages (`api.tmdb.collection`)
+- [ ] Discovery rows: Top Rated, In Theatres, Coming Soon, Airing Today/This Week,
+      Trending (day / movie / tv separately)
+- [ ] Import by IMDb ID (`api.tmdb.findImdb`) — pairs with the IMDb CSV importer
+- [ ] Episode-group awareness in SeasonGrid (`api.tmdb.episodeGroups`) for
+      scene-vs-absolute numbering
+- [ ] Link to collection/person from DetailPanel
 
 ### Phase D — UI polish
 
