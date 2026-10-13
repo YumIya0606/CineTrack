@@ -104,7 +104,11 @@ Runtimes and episode counts are pulled from TMDB when you shelve a title, so mov
 ### 🎬 And the rest
 
 - **Live catalog** — search ~1M titles via TMDB with cast, crew, taglines and "more like this".
+- **Curated discovery** — trending, top rated, in theatres, coming soon and airing this week, as one-click rows above the filterable grid.
+- **People & franchises** — click any cast or crew name for their filmography; follow a collection through the franchise in release order.
+- **Subtitles** — fetched on demand, cached locally, English by default. Press **Sync** when a line you recognise appears and timing locks on.
 - **Free streaming** — community embed providers in an ad-blocked, sandboxed webview.
+- **Import your history** — drop in an IMDb ratings CSV and titles you never shelved are resolved and added for you.
 - **Stats** — genres, decades, rating distribution, activity, most-watched people, and a shareable card.
 - **Cinematic UI** — dark gold-on-charcoal, glassmorphism, 3D pointer-tracking poster tilt.
 - **Keyboard-first** — `Ctrl+K` search · `B` bulk add · `1–7` switch views · `,` settings · `Esc` close.
@@ -244,10 +248,11 @@ CineTrack/
 Your library lives in a single SQLite file inside the app's user-data directory
 (`%APPDATA%/CineTrack/data/` on Windows). **No analytics, no telemetry, no account.**
 
-The app talks to exactly two places:
+The app talks to exactly three places:
 
 - **`api.themoviedb.org`** — only if you supply your own TMDB key.
 - **Your own provider streams** — inside a sandboxed, ad-blocked webview.
+- **A subtitle provider** — and only once you actually open subtitles. The built-in provider needs no account; an OpenSubtitles key you add yourself goes to OpenSubtitles and nowhere else. Fetched tracks are cached in your local app data, so the same subtitle is never downloaded twice.
 
 Backups are encrypted with your passphrase. The auto-backup passphrase is held by
 the OS credential store (DPAPI on Windows), so it stays bound to your Windows

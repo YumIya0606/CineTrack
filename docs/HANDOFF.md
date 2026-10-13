@@ -182,9 +182,10 @@ the provider, because the user calibrates it.
       id a person was just a name with nowhere to go.
 - [x] `summaryToItem` in `shared/utils` — one place that converts credit
       summaries into renderable catalog items.
-- [ ] **Import by IMDb ID in the UI.** `api.tmdb.findImdb` works over IPC but
-      no screen calls it; the IMDb CSV importer still matches on title.
-      This is the last unused endpoint worth exposing.
+- [x] **Import by IMDb ID.** The IMDb CSV importer now resolves titles it
+      can't match locally through `api.tmdb.findImdb`, so exporting your
+      IMDb history actually imports it instead of only re-shelving what you
+      already had. Bounded at 4 concurrent lookups to respect rate limits.
 
 ### Phase D — UI polish
 
@@ -192,6 +193,21 @@ Standing list; see `docs/UI-AUDIT.md`.
 
 Verified by screenshot after the chart work: rows render live against TMDB,
 load independently, and blank out individually on failure.
+
+---
+
+## Endpoint coverage
+
+Every endpoint in `docs/TMDB-ENDPOINT-MAP.md` is now reachable from the UI.
+The deliberately-unused remainder, and why:
+
+| Endpoint | Why unused |
+|---|---|
+| `images/{type}/{id}` | Per-language posters/backdrops/dropdates. The app uses one size and one language; adding language switching is a product decision, not a missing feature. |
+| `alternative_titles` | Power Rangers needs a UK series entry per country. Would duplicate catalog rows. |
+| `certification` | A G-rating chip is a nicety; the per-country values need a lookup table to be meaningful. |
+| `keywords` | Only useful for a "because you liked X" recommender, which is not planned. |
+| `episode_groups` | Exposed over IPC but unwired: scene-vs-absolute numbering only matters if someone imports scene-numbered releases. Worth it if that ever lands. |
 
 ---
 
