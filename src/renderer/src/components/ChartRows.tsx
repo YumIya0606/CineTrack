@@ -51,6 +51,8 @@ function ChartRow({ def }: { def: ChartDef }) {
 
   if (!items || items.length === 0) return null
 
+  if (!items || items.length === 0) return null
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 10 }}
@@ -76,8 +78,17 @@ function ChartRow({ def }: { def: ChartDef }) {
 }
 
 /** The curated chart block shown above the filterable discover grid. */
-export function ChartRows({ kind }: { kind: 'movie' | 'series' }) {
-  const charts = kind === 'series' ? SERIES_CHARTS : MOVIE_CHARTS
+export function ChartRows({
+  kind,
+  expanded = false
+}: {
+  kind: 'movie' | 'series'
+  expanded?: boolean
+}) {
+  const all = kind === 'series' ? SERIES_CHARTS : MOVIE_CHARTS
+  // Collapsed shows the first two *rows* only. Slicing the items inside each
+  // row instead would quietly shrink every strip to two posters.
+  const charts = expanded ? all : all.slice(0, 2)
   return (
     <div>
       {charts.map(def => (

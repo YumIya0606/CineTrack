@@ -18,12 +18,34 @@ import {
   CartesianGrid
 } from 'recharts'
 
+/**
+ * Recharts takes raw colour strings, not CSS variables, so every chart colour
+ * has to be written out. Keeping them here mirrors globals.css by hand — which
+ * is exactly how the activity chart ended up off-palette in purple while the
+ * rest of the app is gold-on-charcoal.
+ */
+const PALETTE = {
+  gold: '#f5b544',
+  goldSoft: '#f8c97d',
+  goldDim: '#8a6420',
+  crimson: '#e84855',
+  emerald: '#3ecf8e',
+  azure: '#5b8def',
+  surface: '#12141a',
+  line: '#262b35',
+  ink: '#ececf1',
+  inkDim: '#6d7186',
+  cursor: '#ffffff08',
+  raised: '#1d2028'
+} as const
+
+// Ordered so adjacent slices stay distinguishable; the first four are the
+// app's own accent tokens.
 const PIE_COLORS = [
-  '#f5b544',
-  '#e84855',
-  '#3ecf8e',
-  '#5b8def',
-  '#b07ce8',
+  PALETTE.gold,
+  PALETTE.crimson,
+  PALETTE.emerald,
+  PALETTE.azure,
   '#f072a1',
   '#4cc9d8',
   '#f9c74f',
@@ -34,11 +56,11 @@ const PIE_COLORS = [
 ]
 
 const tooltipStyle = {
-  background: '#12141a',
-  border: '1px solid #262b35',
+  background: PALETTE.surface,
+  border: '1px solid ' + PALETTE.line,
   borderRadius: '10px',
   fontSize: '12px',
-  color: '#ececf1'
+  color: PALETTE.ink
 }
 
 export default function StatsView() {
@@ -112,25 +134,25 @@ export default function StatsView() {
         <ChartCard title="Watch time by genre" className="md:col-span-2 xl:col-span-2">
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={stats.byGenre} margin={{ top: 8, right: 8, left: -18, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#262b35" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
               <XAxis
                 dataKey="genre"
-                stroke="#6d7186"
+                stroke={PALETTE.inkDim}
                 fontSize={10.5}
                 tickLine={false}
-                axisLine={{ stroke: '#262b35' }}
+                axisLine={{ stroke: PALETTE.line }}
                 interval={0}
                 angle={-28}
                 textAnchor="end"
                 height={58}
               />
-              <YAxis stroke="#6d7186" fontSize={10.5} tickLine={false} axisLine={false} />
+              <YAxis stroke={PALETTE.inkDim} fontSize={10.5} tickLine={false} axisLine={false} />
               <Tooltip
-                cursor={{ fill: '#ffffff08' }}
+                cursor={{ fill: PALETTE.cursor }}
                 contentStyle={tooltipStyle}
                 formatter={v => [formatTotalRuntime(Number(v)), 'Watch time'] as [string, string]}
               />
-              <Bar dataKey="minutes" radius={[5, 5, 0, 0]} fill="#f5b544" maxBarSize={46} />
+              <Bar dataKey="minutes" radius={[5, 5, 0, 0]} fill={PALETTE.gold} maxBarSize={46} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -152,8 +174,8 @@ export default function StatsView() {
                 paddingAngle={3}
                 stroke="none"
               >
-                <Cell fill="#f5b544" />
-                <Cell fill="#5b8def" />
+                <Cell fill={PALETTE.gold} />
+                <Cell fill={PALETTE.azure} />
               </Pie>
               <Tooltip contentStyle={tooltipStyle} />
             </PieChart>
@@ -163,27 +185,27 @@ export default function StatsView() {
         <ChartCard title="Rating distribution">
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={stats.ratingDistribution} margin={{ top: 8, right: 8, left: -18, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#262b35" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
               <XAxis
                 dataKey="rating"
-                stroke="#6d7186"
+                stroke={PALETTE.inkDim}
                 fontSize={10.5}
                 tickLine={false}
-                axisLine={{ stroke: '#262b35' }}
+                axisLine={{ stroke: PALETTE.line }}
               />
               <YAxis
-                stroke="#6d7186"
+                stroke={PALETTE.inkDim}
                 fontSize={10.5}
                 tickLine={false}
                 axisLine={false}
                 allowDecimals={false}
               />
               <Tooltip
-                cursor={{ fill: '#ffffff08' }}
+                cursor={{ fill: PALETTE.cursor }}
                 contentStyle={tooltipStyle}
                 formatter={v => [Number(v), 'Titles rated'] as [number, string]}
               />
-              <Bar dataKey="count" radius={[5, 5, 0, 0]} fill="#3ecf8e" maxBarSize={46} />
+              <Bar dataKey="count" radius={[5, 5, 0, 0]} fill={PALETTE.emerald} maxBarSize={46} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -191,16 +213,16 @@ export default function StatsView() {
         <ChartCard title="Activity by month" className="xl:col-span-2">
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={stats.monthlyActivity} margin={{ top: 8, right: 8, left: -18, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#262b35" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
               <XAxis
                 dataKey="month"
-                stroke="#6d7186"
+                stroke={PALETTE.inkDim}
                 fontSize={10.5}
                 tickLine={false}
-                axisLine={{ stroke: '#262b35' }}
+                axisLine={{ stroke: PALETTE.line }}
               />
 <YAxis
-              stroke="#6d7186"
+              stroke={PALETTE.inkDim}
               fontSize={10.5}
               tickLine={false}
               axisLine={false}
@@ -209,11 +231,14 @@ export default function StatsView() {
               allowDecimals={false}
             />
             <Tooltip
-              cursor={{ fill: '#ffffff08' }}
+              cursor={{ fill: PALETTE.cursor }}
               contentStyle={tooltipStyle}
               formatter={v => [Number(v), 'Titles finished'] as [number, string]}
             />
-              <Bar dataKey="count" radius={[5, 5, 0, 0]} fill="#b07ce8" maxBarSize={34} />
+              {/* gold-soft, not a free-floating purple. Recharts takes a raw colour, so
+                  every chart here has to mirror a token from globals.css by
+                  hand; this one had drifted off-palette entirely. */}
+              <Bar dataKey="count" radius={[5, 5, 0, 0]} fill={PALETTE.goldSoft} maxBarSize={34} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -256,7 +281,7 @@ export default function StatsView() {
                 startAngle={90}
                 endAngle={-270}
               >
-                <RadialBar background={{ fill: '#1d2028' }} cornerRadius={6} />
+                <RadialBar background={{ fill: PALETTE.raised }} cornerRadius={6} />
                 <Tooltip contentStyle={tooltipStyle} />
               </RadialBarChart>
             </ResponsiveContainer>

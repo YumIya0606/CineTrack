@@ -287,7 +287,10 @@ api.settings.get<string>('subtitles.language').then(l => {
                 </button>
               </header>
 
-              <div className="row-scroll flex flex-col gap-7 overflow-y-auto p-7">
+              {/* [&>section]:shrink-0 — a flex column lets its children shrink,
+                  and an <input> inside one got squashed to a few pixels tall
+                  rather than being pushed below the fold by overflow. */}
+              <div className="row-scroll flex flex-col gap-7 overflow-y-auto p-7 [&>section]:shrink-0 [&>div]:shrink-0">
                 {tab === 'catalog' && (
                   <>
                     <section>
@@ -550,11 +553,12 @@ api.settings.get<string>('subtitles.language').then(l => {
                     <section>
                       <SectionLabel>Subtitles</SectionLabel>
                       <p className="mt-1.5 text-xs leading-relaxed text-ink-dim">
-                        Subtitles are fetched on demand and cached locally, so they work offline
-                        and never cost you a second download. Because the streaming embed doesn't
-                        expose a readable player clock, timing is calibrated by you — press
-                        <strong className="mx-1 text-ink-soft">Sync</strong> in the watch window
-                        when a line you recognise appears, and everything realigns from there.
+                        Subtitles are fetched on demand and cached locally, so they work
+                        offline and never cost you a second download. Where the player reports
+                        its own position, timing is exact and the
+                        <strong className="mx-1 text-ink-soft">Sync</strong> button reads
+                        &ldquo;In sync&rdquo;. A few providers stay silent, and there you press
+                        it once when a line you recognise appears.
                       </p>
 
                       <div className="mt-3 flex flex-wrap items-center gap-2">

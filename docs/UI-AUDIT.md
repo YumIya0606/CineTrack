@@ -1,45 +1,58 @@
 # UI audit
 
 Standing list of what was actually looked at, and what was not. Regenerate the
-captures with `npx electron scripts/screenshot.mjs` (writes `./screenshots`,
-uses a throwaway profile in `.screenshot-profile/`, never reads your real
-library or API key).
+captures with `npx electron scripts/screenshot.mjs`.
+
+The harness is more than a screenshotter: it seeds a throwaway profile, copies
+the TMDB and SubDL keys out of the **real** profile read-only, walks every view
+and overlay, and records every console error, failed request and unhandled
+rejection. Most defects in an Electron app are silent — a rejected promise never
+shows up in a picture. It also detects blank captures and retries, because
+`capturePage()` intermittently returns an unpainted frame and a run of empty
+PNGs is indistinguishable from a crashed app.
+
+Seeded rows carry **real TMDB and IMDb ids**. An earlier version invented them,
+which made every live fetch resolve to an unrelated title — Breaking Bad's
+detail panel came back with two strangers in the cast.
 
 ## Verified — 2026-10-13
 
-**Discover charts** (`screenshots/04-discover.png`)
-- Trending / top rated render live against TMDB, correct poster aspect, no
-  layout shift as rows stream in.
-- Rows are fixed-width horizontal strips, so density holds on a wide window.
-  The first attempt used a 10-wide grid; posters stretched to ~150px and
-  pushed the filterable grid a full screen down. Reverted to strips.
-- Rows step aside once any filter is set, so results the user actually
-  requested stay above the fold.
+Every view, both detail panels, all five Settings tabs, the person modal, the
+command palette, bulk add, and a live subtitle search. Zero runtime errors.
 
-**Detail panel** (`screenshots/03-detail.png`)
-- Unchanged by the person/collection work: the seeded Breaking Bad entry is a
-  series with no live TMDB data in the screenshot profile, so the cast strip
-  never renders there. The new cast/crew buttons and the collection link are
-  covered by typecheck and the build, **not** by a screenshot.
+**Fixed during this pass:**
+- Discover's filter bar — the page's own controls — sat below three chart rows.
+  Charts are now capped at two with a Show all toggle, and live above them.
+- Board's PROGRESS column showed a movie's *runtime* ("148 min"), which reads
+  as progress. It now shows watched-over-runtime, or "Not started".
+- Person modal's profile image was broken: the raw TMDB path was used instead of
+  `profileUrl()`.
+- The Settings scroll container is a flex column, so its children shrank and a
+  password input was squashed to a few pixels. Children now `shrink-0`.
+- Generated posters started their gradient at full saturation, so every
+  posterless title was a bright magenta or teal block in a gold-on-charcoal
+  library. They now read as dark posters with a hint of colour.
+- The activity chart was purple, a colour that exists nowhere else in the app.
+  All chart colours now come from one `PALETTE` map mirroring `globals.css`.
+- Subtitle picker's "0 ↓" on every row (SubDL reports no download count) and the
+  internal-looking "IMDbId tt0903747" label.
 
 ## Not yet looked at
 
-- **Player sync end to end.** `lib/playerSync.ts` listens for the postMessage
-  channel embed players use to report playback. The normaliser is unit-tested
-  against every known message shape (14 tests), and a live HAR confirmed
-  VidLove emits that shape — but it has never run inside Electron's `<webview>`.
-  A webview is a full browser context so the message should arrive, and that is
-  exactly the kind of assumption worth proving rather than trusting.
-- **Subtitles end to end.** The parser (11 tests), season-pack reader (10 tests)
-  and providers are covered, and SubDL plus the archive format were verified by
-  hand — but no subtitle has been watched through the overlay on a live stream.
-- **SubDL season packs against the real API.** The zip reader is tested against
-  archives built locally, including the episode-2-vs-12 case. Real packs use
-  messier filenames; that path needs a real download to confirm.
-- **Person and collection modals.** Built and compiling; no screenshot, no
-  live run.
-- **OpenSubtitles with a real key.** The code path is written; only the
-  no-key path has been exercised.
+- **Subtitles watched end to end.** Search, ranking and season-pack episode
+  matching are all confirmed against the live API, but no subtitle has been
+  watched through the overlay on a real stream, and the postMessage sync path
+  has never fired inside a `<webview>`.
+- **Person modal "Known for"** renders the first 18 credits with a Show all
+  toggle; the expanded state has not been screenshotted.
+- **Collection modal.** The harness reports "no collection link" because none
+  of the seeded titles belongs to a franchise. Untested.
+- **Empty states.** Nothing in this library is empty, so watchlist, lists and
+  no-results states are unverified.
+- **Window sizes.** Everything captured at 1600x1000. No 1280px laptop or
+  ultrawide pass.
+- **Subtitle settings with a real key typed in** — the fields render, but the
+  round trip is only proven for the SubDL key already in the real profile.
 
 ## Known rough edges
 

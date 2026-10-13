@@ -58,6 +58,7 @@ export default function DiscoverView() {
   // the user is actually filtering — otherwise the grid the user asked for is
   // pushed a full screen down by suggestions they didn't request.
   const [showCharts, setShowCharts] = useState(true)
+  const [chartsExpanded, setChartsExpanded] = useState(false)
   const [items, setItems] = useState<CatalogItem[]>([])
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -152,18 +153,48 @@ export default function DiscoverView() {
 
       {/* Curated charts sit above the filterable grid: they answer "what should
           I watch" before the user has committed to any filter at all. */}
-      {showCharts && activeFilters === 0 && (
-        <div className="mb-2">
-          <ChartRows kind={kind} />
-        </div>
-      )}
-
       {activeFilters > 0 && showCharts && (
         <button
           onClick={() => setShowCharts(false)}
           className="mb-5 text-xs text-ink-dim transition hover:text-gold"
         >
           Show suggestions above filtered results
+        </button>
+      )}
+
+      {/* Suggestions are capped to one screen. Three full chart rows pushed the
+          filter bar and the results grid a full viewport down, so the page's
+          own subtitle — "browse by genre, rating and era" — described controls
+          you could not see. */}
+      {showCharts && activeFilters === 0 && (
+        <div className="mb-7">
+          <div className="mb-3 flex items-center gap-3">
+            <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-ink-dim">
+              Suggestions
+            </h2>
+            <button
+              onClick={() => setShowCharts(false)}
+              className="text-xs text-ink-dim transition hover:text-gold"
+            >
+              Hide
+            </button>
+            <button
+              onClick={() => setChartsExpanded(v => !v)}
+              className="ml-auto text-xs text-ink-dim transition hover:text-gold"
+            >
+              {chartsExpanded ? 'Collapse' : 'Show all'}
+            </button>
+          </div>
+          <ChartRows kind={kind} expanded={chartsExpanded} />
+        </div>
+      )}
+
+      {activeFilters === 0 && !showCharts && (
+        <button
+          onClick={() => setShowCharts(true)}
+          className="mb-7 text-xs text-ink-dim transition hover:text-gold"
+        >
+          Show suggestions
         </button>
       )}
 

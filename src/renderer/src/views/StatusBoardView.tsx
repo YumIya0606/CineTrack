@@ -448,12 +448,12 @@ function BoardRowItem({ row, onOpen }: { row: BoardRow; onOpen: () => void }) {
   return (
     <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-line/60 px-4 py-3 transition last:border-b-0 hover:bg-surface-2/50 sm:grid-cols-[minmax(0,1fr)_9rem_4rem_auto]">
       <button onClick={onOpen} className="flex min-w-0 items-center gap-4 text-left">
-        <div className="h-14 w-[38px] shrink-0 overflow-hidden rounded-lg">
+        <div className="h-[60px] w-11 shrink-0 overflow-hidden rounded-lg">
           {row.posterPath ? (
             <img
               src={`https://image.tmdb.org/t/p/w185${row.posterPath}`}
               alt=""
-              className="h-full w-full object-cover"
+              className="h-full w-full object-cover object-top"
               loading="lazy"
             />
           ) : (
@@ -500,7 +500,29 @@ function BoardRowItem({ row, onOpen }: { row: BoardRow; onOpen: () => void }) {
             </div>
           </>
         ) : row.kind === 'movie' && row.runtimeMinutes ? (
-          <span className="text-[11px] text-ink-dim">{row.runtimeMinutes} min</span>
+          // A movie's progress is watched time over its runtime. Showing the
+          // bare runtime here - as this column used to - read as "148 min
+          // watched" to anyone scanning the board.
+          row.watchMinutes > 0 ? (
+            <>
+              <div className="flex items-center justify-between text-[10.5px] text-ink-dim">
+                <span>
+                  {formatShortMinutes(row.watchMinutes)}/{row.runtimeMinutes} min
+                </span>
+                <span>{Math.round((row.watchMinutes / row.runtimeMinutes) * 100)}%</span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-gold-dim to-gold transition-all"
+                  style={{
+                    width: `${Math.min(100, (row.watchMinutes / row.runtimeMinutes) * 100)}%`
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <span className="text-[11px] text-ink-dim">Not started</span>
+          )
         ) : (
           <span className="text-[11px] text-ink-dim">—</span>
         )}

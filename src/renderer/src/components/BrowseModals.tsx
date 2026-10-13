@@ -4,7 +4,10 @@ import { api } from '../lib/api'
 import { cn } from '../lib/utils'
 import PosterCard from './PosterCard'
 import type { PersonDetails, CollectionDetails, CatalogItem } from '@shared/types'
-import { summaryToItem } from '@shared/utils'
+import { summaryToItem, profileUrl } from '@shared/utils'
+
+/** Credits shown before the user asks for the rest. */
+const KNOWN_FOR_PAGE = 18
 
 /**
  * A person's filmography: the cast and directing credits TMDB knows about, in
@@ -23,6 +26,7 @@ export function PersonModal({
 }) {
   const [person, setPerson] = useState<PersonDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showAllCredits, setShowAllCredits] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -66,9 +70,10 @@ export function PersonModal({
             <div className="flex gap-5">
               {person.profilePath && (
                 <img
-                  src={person.profilePath}
+                  src={profileUrl(person.profilePath, 'h632') ?? undefined}
                   alt=""
-                  className="h-40 w-40 shrink-0 rounded-xl border border-line object-cover"
+                  loading="lazy"
+                  className="h-44 w-44 shrink-0 rounded-xl border border-line object-cover"
                 />
               )}
               <div className="min-w-0">
@@ -90,11 +95,25 @@ export function PersonModal({
 
             {credits.length > 0 && (
               <div className="mt-7">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-dim">
-                  Known for · {credits.length}
-                </h3>
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-dim">
+                    Known for · {credits.length}
+                  </h3>
+                  {credits.length > KNOWN_FOR_PAGE && (
+                    <button
+                      onClick={() => setShowAllCredits(v => !v)}
+                      className="text-[11px] text-ink-dim transition hover:text-gold"
+                    >
+                      {showAllCredits ? 'Show less' : `Show all ${credits.length}`}
+                    </button>
+                  )}
+                </div>
+                {/* A prolific actor has hundreds of credits. Rendering all of
+                    them is a wall of posters that hides the ones that matter —
+                    TMDB already returns them newest-first, so the first page is
+                    the recent and relevant work. */}
                 <div className="mt-3 flex flex-wrap gap-3">
-                  {credits.map(c => (
+                  {(showAllCredits ? credits : credits.slice(0, KNOWN_FOR_PAGE)).map(c => (
                     <PosterCard
                       key={c.tmdbId}
                       item={c}

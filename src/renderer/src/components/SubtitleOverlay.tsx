@@ -301,7 +301,10 @@ const search = useCallback(async () => {
               <div>
                 <div className="text-xs font-semibold text-ink">Subtitles</div>
                 <div className="mt-0.5 text-[10.5px] text-ink-dim">
-                  {imdbId ? `IMDb ${imdbId}` : 'No IMDb id for this title'}
+                  {/* This was a raw internal label ("IMDbId tt0903747") that
+                      said nothing useful to a person. Sources that key on IMDb
+                      are listed instead, which is the actionable fact. */}
+                  {imdbId ? 'Matched by IMDb and TMDB id' : 'Matched by TMDB id'}
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -378,7 +381,12 @@ const search = useCallback(async () => {
                           SDH
                         </span>
                       )}
-                      <span className="ml-auto text-[10px] text-ink-dim">{c.downloads} ⤓</span>
+                      <span className="ml-auto text-[10px] text-ink-dim">
+                        {/* SubDL reports no download count, so a bare "0" on
+                            every row reads as a broken figure rather than an
+                            absent one. Only show a number when there is one. */}
+                        {c.downloads > 0 ? `${c.downloads.toLocaleString()} dl` : ''}
+                      </span>
                     </div>
                     <div className="truncate text-[11px] text-ink-soft">{c.release}</div>
                   </button>

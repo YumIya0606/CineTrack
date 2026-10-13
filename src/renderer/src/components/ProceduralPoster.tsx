@@ -21,15 +21,25 @@ function hashString(str: string): number {
   return h >>> 0
 }
 
+/**
+ * [deep tint, near-black, accent]
+ *
+ * The accent is deliberately NOT the gradient's leading stop. These used to
+ * start at full saturation, which made every posterless title a bright wash of
+ * magenta or teal sitting in a gold-on-charcoal library — the generated art
+ * shouted louder than the real artwork next to it. Now each one reads as a dark
+ * poster with a hint of colour, and the accent is reserved for a soft corner
+ * glow and the year.
+ */
 const PALETTES: [string, string, string][] = [
-  ['#f5b544', '#8a3b12', '#1a0f08'],
-  ['#e84855', '#5a1420', '#160a0d'],
-  ['#3ecf8e', '#0f4d3a', '#06160f'],
-  ['#5b8def', '#1c2f63', '#080d1a'],
-  ['#b07ce8', '#3a1d63', '#100a1a'],
-  ['#f072a1', '#5a1438', '#170a12'],
-  ['#4cc9d8', '#0f4a52', '#051518'],
-  ['#f9c74f', '#8a5a12', '#1a1206']
+  ['#2a2113', '#0d0b08', '#f5b544'],
+  ['#2b1618', '#0e0809', '#e84855'],
+  ['#12261f', '#070d0b', '#3ecf8e'],
+  ['#141d2e', '#080a10', '#5b8def'],
+  ['#1e1830', '#0a0810', '#b07ce8'],
+  ['#2a1524', '#0e070c', '#f072a1'],
+  ['#10232a', '#070c0e', '#4cc9d8'],
+  ['#2a2410', '#0d0b06', '#f9c74f']
 ]
 
 export default function ProceduralPoster({
@@ -38,13 +48,16 @@ export default function ProceduralPoster({
   seed,
   className
 }: ProceduralPosterProps) {
-  const { gradient, accent, pattern } = useMemo(() => {
+  const { gradient, glow, accent, pattern } = useMemo(() => {
     const h = hashString(seed !== undefined ? `${seed}` : title)
     const palette = PALETTES[h % PALETTES.length]!
     const angle = 115 + (h % 50)
     return {
-      gradient: `linear-gradient(${angle}deg, ${palette[0]} 0%, ${palette[1]} 48%, ${palette[2]} 100%)`,
-      accent: palette[0],
+      gradient: `linear-gradient(${angle}deg, ${palette[0]} 0%, ${palette[1]} 52%, ${palette[2]} 100%)`,
+      // A single low-opacity corner bloom so titles stay individually
+      // recognisable without the poster itself turning into a colour block.
+      glow: `radial-gradient(120% 90% at 78% 16%, ${palette[2]}00 0%, transparent 62%)`,
+      accent: palette[2],
       pattern: h % 3
     }
   }, [title, seed])
@@ -55,7 +68,7 @@ export default function ProceduralPoster({
     <div
       className={className}
       style={{
-        background: gradient,
+        backgroundImage: `${glow}, ${gradient}`,
         position: 'relative',
         overflow: 'hidden',
         display: 'flex',
@@ -67,7 +80,7 @@ export default function ProceduralPoster({
       {/* Decorative ring pattern */}
       <svg
         viewBox="0 0 100 100"
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.16 }}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.1 }}
         aria-hidden
       >
         {pattern === 0 && (
