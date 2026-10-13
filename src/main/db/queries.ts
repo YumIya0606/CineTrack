@@ -129,17 +129,20 @@ export function ensureCatalogItem(item: CatalogItem): CatalogItem {
   if (item.tmdbId) {
     const byTmdb = db.select().from(catalog).where(eq(catalog.tmdbId, item.tmdbId)).get()
     if (byTmdb) {
-      // A row found by TMDB id may predate a runtime/episode enrichment, so
+      // A row found by TMDB id may predate a runtime/episode/IMDb enrichment, so
       // fill the gaps rather than returning a permanently runtime-less row
-      // (a movie with no runtime contributes nothing to watch time).
+      // (a movie with no runtime contributes nothing to watch time, and a row
+      // with no IMDb id can never find subtitles).
       if (
         (item.runtimeMinutes && !byTmdb.runtimeMinutes) ||
+        (item.imdbId && !byTmdb.imdbId) ||
         (item.posterPath && !byTmdb.posterPath) ||
         (item.overview && !byTmdb.overview)
       ) {
         db.update(catalog)
           .set({
             runtimeMinutes: item.runtimeMinutes ?? byTmdb.runtimeMinutes,
+            imdbId: item.imdbId ?? byTmdb.imdbId,
             posterPath: item.posterPath ?? byTmdb.posterPath,
             backdropPath: item.backdropPath ?? byTmdb.backdropPath,
             overview: item.overview ?? byTmdb.overview,

@@ -32,7 +32,8 @@ async function pooledMap<T, R>(
 }
 
 /**
- * Fills in runtime and episode counts from TMDB when a row doesn't carry them.
+ * Fills in runtime, episode counts and the IMDb id from TMDB when a row
+ * doesn't carry them.
  *
  * This is the root cause of "watch time never moves": `/search` and
  * `/trending` responses have no `runtime` at all, and a series never has a
@@ -40,14 +41,19 @@ async function pooledMap<T, R>(
  * added any way, landed in the catalog with a null runtime and counted as
  * zero minutes forever. Details endpoints carry both, so we fetch once, at
  * add time, when TMDB is reachable.
+ *
+ * The IMDb id matters just as much: every subtitle provider keys on it, and
+ * `/search` never returns it. Without this, adding a title and expecting to
+ * find subtitles for it would always fail.
  */
 export async function enrichRuntime(item: CatalogItem): Promise<EnrichedItem> {
   const base: EnrichedItem = { ...item, episodesTotal: null, seasonsTotal: null }
   if (!item.tmdbId || !getTmdbConfig().connected) return base
-  if (item.runtimeMinutes) {
-    // A series still needs its episode count for watch time, so keep going.
-    if (item.kind !== 'series') return base
-  }
+
+  // Anything still missing is worth a request. Previously a movie that already
+  // knew its runtime returned early here, which meant it also never received
+  // an IMDb id — the two facts arrive in the same response.
+  if (item.runtimeMinutes && item.imdbId && item.kind !== 'series') return base
 
   try {
     const d = await detailsTmdb(item.tmdbId, item.kind)
@@ -60,6 +66,8 @@ export async function enrichRuntime(item: CatalogItem): Promise<EnrichedItem> {
     return {
       ...base,
       runtimeMinutes: runtime ?? item.runtimeMinutes ?? null,
+      // Never downgrade an existing id: a manual/legacy row keeps its value.
+      imdbId: item.imdbId ?? d.external_ids?.imdb_id ?? null,
       episodesTotal: d.number_of_episodes ?? null,
       seasonsTotal: d.number_of_seasons ?? null
     }
@@ -121,22 +129,29 @@ export interface EpisodeCounts {
 const NO_COUNTS: EpisodeCounts = { episodesTotal: null, seasonsTotal: null }
 
 /**
- * Enriches an already-persisted catalog row with its runtime and, for series,
- * its episode counts — then writes the runtime back so future stats skip the
- * call. This is what makes a single title shelved from the search palette or
- * marked complete in the detail panel contribute real minutes.
+ * Enriches an already-persisted catalog row with its runtime, IMDb id and, for
+ * series, its episode counts — then writes whatever it learned back so future
+ * stats and subtitle lookups skip the call. This is what makes a single title
+ * shelved from the search palette or marked complete in the detail panel
+ * contribute real minutes, and what lets a title added before IMDb plumbing
+ * still find subtitles.
  */
 export async function enrichCatalogRow(catalogId: number): Promise<EpisodeCounts> {
   const row = getCatalogItem(catalogId)
   if (!row) return NO_COUNTS
 
   const enriched = await enrichRuntime(row)
+  const patch: Partial<typeof catalog.$inferInsert> = {}
   if (enriched.runtimeMinutes && !row.runtimeMinutes) {
-    getDb()
-      .update(catalog)
-      .set({ runtimeMinutes: enriched.runtimeMinutes })
-      .where(eq(catalog.id, row.id))
-      .run()
+    patch.runtimeMinutes = enriched.runtimeMinutes
+  }
+  // Persist the IMDb id too: watching a title is exactly when subtitles get
+  // searched for, and a missing id there means no candidates at all.
+  if (enriched.imdbId && !row.imdbId) {
+    patch.imdbId = enriched.imdbId
+  }
+  if (Object.keys(patch).length) {
+    getDb().update(catalog).set(patch).where(eq(catalog.id, row.id)).run()
   }
   return { episodesTotal: enriched.episodesTotal, seasonsTotal: enriched.seasonsTotal }
 }
