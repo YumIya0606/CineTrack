@@ -136,8 +136,8 @@ export function getRaw(): Database.Database {
   return raw
 }
 
-/** Re-opens the connection after an in-place restore replaced the file. */
-export function reopenDatabase(): void {
+/** Closes the connection. Used on shutdown and by tests that own a temp dir. */
+export function closeDatabase(): void {
   try {
     raw?.close()
   } catch {
@@ -145,5 +145,10 @@ export function reopenDatabase(): void {
   }
   raw = null
   db = null
+}
+
+/** Re-opens the connection after an in-place restore replaced the file. */
+export function reopenDatabase(): void {
+  closeDatabase()
   initDatabase()
 }

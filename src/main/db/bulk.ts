@@ -13,7 +13,7 @@ interface EnrichedItem extends CatalogItem {
 }
 
 /** Runs an async mapper over a list with a bounded worker pool. */
-async function pooledMap<T, R>(
+export async function pooledMap<T, R>(
   items: T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>
