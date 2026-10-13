@@ -25,8 +25,36 @@ import type {
   BoardFilters,
   BoardSort,
   BoardResult,
-  StatusDef
+  StatusDef,
+  PersonDetails,
+  CollectionDetails
 } from '@shared/types'
+
+/** A subtitle release offered for a title. */
+export interface SubtitleCandidate {
+  id: string
+  release: string
+  format: string
+  language: string
+  languageCode: string
+  downloads: number
+  hearingImpaired: boolean
+  provider: string
+}
+
+export interface SubtitleCue {
+  start: number
+  end: number
+  text: string
+}
+
+export interface SubtitleTrack {
+  key: string
+  language: string
+  languageCode: string
+  release: string
+  cues: SubtitleCue[]
+}
 
 /** Payload for creating a custom status. */
 export interface CreateStatusInput {
@@ -115,7 +143,51 @@ const api = {
       ipcRenderer.invoke(IPC.TMDB_SEASON, tmdbId, season),
     discover: (filters: DiscoverFilters, page?: number): Promise<DiscoverPage> =>
       ipcRenderer.invoke(IPC.TMDB_DISCOVER, filters, page),
-    genres: (): Promise<Record<MediaKind, Genre[]>> => ipcRenderer.invoke(IPC.TMDB_GENRES)
+    genres: (): Promise<Record<MediaKind, Genre[]>> => ipcRenderer.invoke(IPC.TMDB_GENRES),
+    trendingBy: (
+      mediaType: 'movie' | 'tv' | 'all',
+      window: 'day' | 'week'
+    ): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_TRENDING_BY, mediaType, window),
+    topRated: (kind: MediaKind): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_TOP_RATED, kind),
+    nowPlaying: (): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_NOW_PLAYING),
+    upcoming: (): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_UPCOMING),
+    onTheAir: (window: 'day' | 'week'): Promise<CatalogItem[]> =>
+      ipcRenderer.invoke(IPC.TMDB_ON_THE_AIR, window),
+    person: (id: number): Promise<PersonDetails> => ipcRenderer.invoke(IPC.TMDB_PERSON, id),
+    collection: (id: number): Promise<CollectionDetails> =>
+      ipcRenderer.invoke(IPC.TMDB_COLLECTION, id),
+    findImdb: (imdbId: string): Promise<{ movieId: number | null; tvId: number | null }> =>
+      ipcRenderer.invoke(IPC.TMDB_FIND_IMDB, imdbId),
+    episodeGroups: (tvId: number): Promise<{ id: number; name: string; description: string | null; type: number; groupCount: number }[]> =>
+      ipcRenderer.invoke(IPC.TMDB_EPISODE_GROUPS, tvId)
+  },
+  subtitles: {
+    search: (
+      imdbId: string,
+      season?: number | null,
+      episode?: number | null,
+      languageCode?: string
+    ): Promise<SubtitleCandidate[]> =>
+      ipcRenderer.invoke(IPC.SUBTITLES_SEARCH, imdbId, season, episode, languageCode),
+    load: (
+      candidate: SubtitleCandidate,
+      tmdbId: number,
+      kind: MediaKind,
+      season?: number | null,
+      episode?: number | null
+    ): Promise<SubtitleTrack> =>
+      ipcRenderer.invoke(IPC.SUBTITLES_LOAD, candidate, tmdbId, kind, season, episode),
+    cached: (
+      tmdbId: number,
+      kind: MediaKind,
+      languageCode: string,
+      season?: number | null,
+      episode?: number | null
+    ): Promise<SubtitleTrack | null> =>
+      ipcRenderer.invoke(IPC.SUBTITLES_CACHED, tmdbId, kind, languageCode, season, episode),
+    stats: (): Promise<{ files: number; bytes: number }> =>
+      ipcRenderer.invoke(IPC.SUBTITLES_STATS),
+    clear: (): Promise<{ files: number }> => ipcRenderer.invoke(IPC.SUBTITLES_CLEAR)
   },
   collections: {
     list: (): Promise<Collection[]> => ipcRenderer.invoke(IPC.COLLECTION_LIST),

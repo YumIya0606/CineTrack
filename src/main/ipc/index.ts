@@ -33,8 +33,26 @@ import {
   watchProvidersTmdb,
   seasonTmdb,
   discoverTmdb,
-  genresTmdb
+  genresTmdb,
+  trendingByTmdb,
+  topRatedTmdb,
+  nowPlayingTmdb,
+  upcomingTmdb,
+  onTheAirTmdb,
+  personTmdb,
+  collectionTmdb,
+  findByImdbTmdb,
+  episodeGroupsTmdb
 } from '../tmdb/client'
+import {
+  searchSubtitles,
+  loadSubtitle,
+  readCachedTrack,
+  subtitleCacheKey,
+  cacheStats,
+  clearSubtitleCache
+} from '../subtitles/client'
+import type { SubtitleCandidate } from '../subtitles/client'
 import type { LiveDetails, CatalogItem } from '@shared/types'
 import {
   listCollections,
@@ -255,6 +273,74 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.TMDB_GENRES, async () => genresTmdb())
+
+  /* ---------- TMDB browse rows, people, collections ---------- */
+  ipcMain.handle(
+    IPC.TMDB_TRENDING_BY,
+    async (_e, mediaType: 'movie' | 'tv' | 'all', window: 'day' | 'week') =>
+      trendingByTmdb(mediaType, window)
+  )
+  ipcMain.handle(IPC.TMDB_TOP_RATED, async (_e, kind: MediaKind) => topRatedTmdb(kind))
+  ipcMain.handle(IPC.TMDB_NOW_PLAYING, async () => nowPlayingTmdb())
+  ipcMain.handle(IPC.TMDB_UPCOMING, async () => upcomingTmdb())
+  ipcMain.handle(IPC.TMDB_ON_THE_AIR, async (_e, window: 'day' | 'week') => onTheAirTmdb(window))
+  ipcMain.handle(IPC.TMDB_PERSON, async (_e, id: number) => {
+    const p = await personTmdb(id)
+    return {
+      id: p.id,
+      name: p.name,
+      biography: p.biography ?? null,
+      birthday: p.birthday ?? null,
+      deathday: p.deathday ?? null,
+      placeOfBirth: p.place_of_birth ?? null,
+      profilePath: p.profile_path ?? null,
+      alsoKnownAs: p.also_known_as ?? [],
+      credits: p.credits
+    }
+  })
+  ipcMain.handle(IPC.TMDB_COLLECTION, async (_e, id: number) => {
+    const c = await collectionTmdb(id)
+    return {
+      id: c.id,
+      name: c.name,
+      overview: c.overview,
+      posterPath: c.poster_path,
+      backdropPath: c.backdrop_path,
+      parts: c.parts
+    }
+  })
+  ipcMain.handle(IPC.TMDB_FIND_IMDB, async (_e, imdbId: string) => findByImdbTmdb(imdbId))
+  ipcMain.handle(IPC.TMDB_EPISODE_GROUPS, async (_e, tvId: number) => episodeGroupsTmdb(tvId))
+
+  /* ---------- Subtitles ---------- */
+  ipcMain.handle(
+    IPC.SUBTITLES_SEARCH,
+    async (
+      _e,
+      imdbId: string,
+      season?: number | null,
+      episode?: number | null,
+      languageCode?: string
+    ) => searchSubtitles(imdbId, season ?? null, episode ?? null, { languageCode })
+  )
+  ipcMain.handle(
+    IPC.SUBTITLES_LOAD,
+    async (
+      _e,
+      candidate: SubtitleCandidate,
+      tmdbId: number,
+      kind: MediaKind,
+      season?: number | null,
+      episode?: number | null
+    ) => loadSubtitle(candidate, tmdbId, kind, season ?? null, episode ?? null)
+  )
+  ipcMain.handle(
+    IPC.SUBTITLES_CACHED,
+    (_e, tmdbId: number, kind: MediaKind, languageCode: string, season?, episode?) =>
+      readCachedTrack(subtitleCacheKey(tmdbId, kind, languageCode, season, episode))
+  )
+  ipcMain.handle(IPC.SUBTITLES_STATS, () => cacheStats())
+  ipcMain.handle(IPC.SUBTITLES_CLEAR, () => clearSubtitleCache())
 
   /* ---------- Collections (user lists) ---------- */
   ipcMain.handle(IPC.COLLECTION_LIST, (): Collection[] => listCollections())

@@ -123,6 +123,39 @@ export interface BoardRow extends LibraryItem {
   watchMinutes: number
 }
 
+/** A lightweight title summary — used by person filmographies and collections. */
+export interface BoardRowSummary {
+  id: number
+  title: string
+  kind: MediaKind
+  year: number | null
+  posterPath: string | null
+  /** Role played (cast) or job (crew); null for a plain listing. */
+  character: string | null
+  voteAverage: number | null
+}
+
+export interface PersonDetails {
+  id: number
+  name: string
+  biography: string | null
+  birthday: string | null
+  deathday: string | null
+  placeOfBirth: string | null
+  profilePath: string | null
+  alsoKnownAs: string[]
+  credits: BoardRowSummary[]
+}
+
+export interface CollectionDetails {
+  id: number
+  name: string
+  overview: string | null
+  posterPath: string | null
+  backdropPath: string | null
+  parts: BoardRowSummary[]
+}
+
 export interface BoardResult {
   rows: BoardRow[]
   total: number

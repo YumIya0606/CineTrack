@@ -23,8 +23,36 @@ import type {
   BoardFilters,
   BoardSort,
   BoardResult,
-  StatusDef
+  StatusDef,
+  PersonDetails,
+  CollectionDetails
 } from '@shared/types'
+
+/** A subtitle release offered for a title. */
+export interface SubtitleCandidate {
+  id: string
+  release: string
+  format: string
+  language: string
+  languageCode: string
+  downloads: number
+  hearingImpaired: boolean
+  provider: string
+}
+
+export interface SubtitleCue {
+  start: number
+  end: number
+  text: string
+}
+
+export interface SubtitleTrack {
+  key: string
+  language: string
+  languageCode: string
+  release: string
+  cues: SubtitleCue[]
+}
 
 /** Payload for creating a custom status. */
 export interface CreateStatusInput {
@@ -102,6 +130,44 @@ export interface CineTrackApi {
     season: (tmdbId: number, season: number) => Promise<SeasonInfo>
     discover: (filters: DiscoverFilters, page?: number) => Promise<DiscoverPage>
     genres: () => Promise<Record<MediaKind, Genre[]>>
+    trendingBy: (
+      mediaType: 'movie' | 'tv' | 'all',
+      window: 'day' | 'week'
+    ) => Promise<CatalogItem[]>
+    topRated: (kind: MediaKind) => Promise<CatalogItem[]>
+    nowPlaying: () => Promise<CatalogItem[]>
+    upcoming: () => Promise<CatalogItem[]>
+    onTheAir: (window: 'day' | 'week') => Promise<CatalogItem[]>
+    person: (id: number) => Promise<PersonDetails>
+    collection: (id: number) => Promise<CollectionDetails>
+    findImdb: (imdbId: string) => Promise<{ movieId: number | null; tvId: number | null }>
+    episodeGroups: (
+      tvId: number
+    ) => Promise<{ id: number; name: string; description: string | null; type: number; groupCount: number }[]>
+  }
+  subtitles: {
+    search: (
+      imdbId: string,
+      season?: number | null,
+      episode?: number | null,
+      languageCode?: string
+    ) => Promise<SubtitleCandidate[]>
+    load: (
+      candidate: SubtitleCandidate,
+      tmdbId: number,
+      kind: MediaKind,
+      season?: number | null,
+      episode?: number | null
+    ) => Promise<SubtitleTrack>
+    cached: (
+      tmdbId: number,
+      kind: MediaKind,
+      languageCode: string,
+      season?: number | null,
+      episode?: number | null
+    ) => Promise<SubtitleTrack | null>
+    stats: () => Promise<{ files: number; bytes: number }>
+    clear: () => Promise<{ files: number }>
   }
   collections: {
     list: () => Promise<Collection[]>

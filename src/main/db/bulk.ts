@@ -165,9 +165,13 @@ export async function backfillRuntimes(): Promise<BackfillResult> {
     .innerJoin(catalog, eq(catalog.id, library.catalogId))
     .all()
 
+  // Anything missing a runtime, a series episode total, or an IMDb id. The
+  // IMDb id is what every subtitle provider keys on, so titles added before
+  // we started appending external_ids are all subtitle-less until repaired.
   const needs = rows.filter(
     r =>
       !r.catalog.runtimeMinutes ||
+      !r.catalog.imdbId ||
       (r.catalog.kind === 'series' && r.library.episodesTotal === null && r.library.episodesWatched === 0)
   )
   if (needs.length === 0) return { fixed: 0, total: 0 }
@@ -181,18 +185,24 @@ export async function backfillRuntimes(): Promise<BackfillResult> {
         r.catalog.kind === 'series'
           ? (d.episode_run_time?.find(x => x > 0) ?? null)
           : (d.runtime || null)
-      if (!runtime) return
+      const imdbId = d.external_ids?.imdb_id ?? null
 
-      getDb()
-        .update(catalog)
-        .set({ runtimeMinutes: runtime })
-        .where(eq(catalog.id, r.catalog.id))
-        .run()
+      // A row can be "fixed" by the IMDb id alone even without a runtime, so
+      // write whatever we learned instead of bailing on a missing runtime.
+      if (!runtime && !imdbId) return
+
+      const patch: Partial<typeof catalog.$inferInsert> = {}
+      if (runtime && !r.catalog.runtimeMinutes) patch.runtimeMinutes = runtime
+      if (imdbId && !r.catalog.imdbId) patch.imdbId = imdbId
+      if (Object.keys(patch).length) {
+        getDb().update(catalog).set(patch).where(eq(catalog.id, r.catalog.id)).run()
+      }
 
       // A completed series with no logged episodes inherits the full count so
       // its watch time finally lands. Series still being watched keep their
       // own math (runtime × logged episodes) once episodes appear.
       if (
+        runtime &&
         r.catalog.kind === 'series' &&
         d.number_of_episodes &&
         !r.library.episodesWatched

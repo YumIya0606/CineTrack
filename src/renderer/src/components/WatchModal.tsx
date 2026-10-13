@@ -2,14 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '../lib/utils'
 import { getResumePoint, saveResumePoint, clearResumePoint } from '../lib/watch-progress'
+import SubtitleOverlay from './SubtitleOverlay'
 import type { MediaKind } from '@shared/types'
 
 interface WatchModalProps {
   tmdbId: number | null
+  /** Needed for subtitle lookup — every subtitle provider keys on IMDb id. */
+  imdbId?: string | null
   kind: MediaKind
   title: string
   /** Total season count for series — drives the season picker. */
   seasonsTotal?: number | null
+  season?: number | null
+  episode?: number | null
   onClose: () => void
   /** Called when the user marks an episode/movie as watched from the player. */
   onMarkWatched?: (season: number | null, episode: number | null) => void
@@ -57,21 +62,32 @@ const SOURCES = [
  */
 export default function WatchModal({
   tmdbId,
+  imdbId,
   kind,
   title,
   seasonsTotal,
+  season: initialSeason,
+  episode: initialEpisode,
   onClose,
   onMarkWatched
 }: WatchModalProps) {
   const [sourceId, setSourceId] = useState(SOURCES[0]!.id)
-  const [season, setSeason] = useState(1)
-  const [episode, setEpisode] = useState(1)
+  const [season, setSeason] = useState(initialSeason ?? 1)
+  const [episode, setEpisode] = useState(initialEpisode ?? 1)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const [autoMarked, setAutoMarked] = useState(false)
   const resumed = useRef(false)
   const watchedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Wall-clock playback position for the subtitle overlay. The embed exposes no
+  // <video> we can read (verified), so we own the clock and the user corrects
+  // it with one-click sync.
+  const [position, setPosition] = useState(0)
+  const [subtitlesOn, setSubtitlesOn] = useState(false)
+  const clockRef = useRef<number | null>(null)
+  const startedAt = useRef<number>(Date.now())
 
   const source = SOURCES.find(s => s.id === sourceId)!
   const seasonCount = Math.max(1, seasonsTotal ?? 1)
@@ -107,6 +123,20 @@ export default function WatchModal({
     }, 400)
     return () => clearTimeout(t)
   }, [tmdbId, kind, sourceId, season, episode])
+
+  // Drive the subtitle clock. Restarting on episode/source change keeps the
+  // timeline aligned with whatever the user just loaded.
+  useEffect(() => {
+    startedAt.current = Date.now()
+    setPosition(0)
+    clockRef.current = window.setInterval(() => {
+      setPosition((Date.now() - startedAt.current) / 1000)
+    }, 250)
+    return () => {
+      if (clockRef.current) window.clearInterval(clockRef.current)
+      clockRef.current = null
+    }
+  }, [src, reloadKey])
 
   // Auto-mark watched after the player has been up long enough to count as a
   // real view (or 60% of a movie's runtime when known).
@@ -366,13 +396,41 @@ export default function WatchModal({
               </button>
             </div>
           )}
+
+          {/* Subtitles render above the embed. The webview is cross-origin and
+              exposes no <video> we can read (verified against the live
+              providers), so the overlay drives off our own clock and the user
+              calibrates it with Sync. */}
+          {tmdbId !== null && (
+            <SubtitleOverlay
+              tmdbId={tmdbId}
+              imdbId={imdbId ?? null}
+              kind={kind}
+              season={kind === 'series' ? season : null}
+              episode={kind === 'series' ? episode : null}
+              position={position}
+              visible={subtitlesOn && !loading}
+            />
+          )}
         </div>
 
-        <div className="flex items-center gap-2 px-5 py-2.5 text-[10.5px] text-ink-dim">
+        <div className="flex flex-wrap items-center gap-2 px-5 py-2.5 text-[10.5px] text-ink-dim">
           <span className="flex items-center gap-1.5 rounded-full border border-emerald/30 bg-emerald/5 px-2 py-0.5 text-emerald">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
             Ad blocker on
           </span>
+          <button
+            onClick={() => setSubtitlesOn(v => !v)}
+            className={cn(
+              'rounded-full border px-2 py-0.5 transition',
+              subtitlesOn
+                ? 'border-gold/50 bg-gold/15 text-gold'
+                : 'border-line bg-surface text-ink-soft hover:border-gold/40 hover:text-ink'
+            )}
+            title="Toggle the subtitle overlay"
+          >
+            Subtitles {subtitlesOn ? 'on' : 'off'}
+          </button>
           <span>Streams come from third-party providers. If one fails, switch sources above.</span>
         </div>
       </motion.div>

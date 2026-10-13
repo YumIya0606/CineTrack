@@ -909,6 +909,7 @@ const confirmDate = async () => {
       {watchOpen && (
         <WatchModal
           tmdbId={item.tmdbId}
+          imdbId={(item as CatalogItem).imdbId ?? null}
           kind={item.kind}
           title={item.title}
           seasonsTotal={live?.seasons ?? null}
