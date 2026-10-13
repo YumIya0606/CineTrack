@@ -134,39 +134,67 @@ vidsrc.to  → top document: 0 <video>, 5 iframes
 ```
 
 Chrome DevTools Protocol attaches fine, but after a play attempt the page serves
-empty content and **0 media requests** are observed. Therefore:
+empty content and **0 media requests** are observed. Therefore, for *those*
+providers:
 
 - ❌ Cannot inject a native `<track>`
 - ❌ Cannot read `currentTime` for exact sync
 - ❌ Cannot extract the stream URL
 - ✅ **Can** render our own overlay layer above the webview
 
-So subtitles = fetch + parse + render overlay, driven by a wall clock
-(`WatchModal` owns it), calibrated by the user. **One-click sync is the accuracy
-mechanism** — press **Sync** when a line you recognise is on screen and that cue
-is pinned to "now", rewriting the offset. This is *more* reliable than trusting
-the provider, because the user calibrates it.
+**But that is no longer the whole story.** Embed players routinely broadcast
+their playback state to the host page via `postMessage`, so the host can show a
+resume point or a next-episode button. Probing `player.vidlove.cc` confirmed
+**VidLove does this** — it emits `{event:'timeupdate', currentTime, duration}`.
+`renderer/lib/playerSync.ts` listens for it, handling the MovieSap, CineSrc and
+generic shapes.
 
-**Verified subtitle sources** (tested live):
+So the behaviour now splits by provider:
 
-| Source | Auth | Limits | Status |
+| Provider | Sync source | Subtitle timing | Watch time |
 |---|---|---|---|
-| `subtitles.website` | none for search | 10/day guest, 50 registered, 1000 VIP | ✅ wired, **default** |
-| OpenSubtitles v1 | `Api-Key` header + optional Bearer | 5/day anon, 20/day free account | ✅ client implemented; needs the user's key in Settings → Playback |
-| Podnapisi | — | — | ❌ **dead** (DNS fail / 404) |
+| VidLove | postMessage | **exact** | **measured** |
+| VidLink, MultiEmbed | none (verified) | wall clock + one-click Sync | estimated from elapsed |
+
+The overlay's manual **Sync** button is still needed on the second row — that is
+the whole reason it exists — but on VidLove it reads "In sync" because there is
+nothing left to calibrate.
+
+**Subtitle sources** — a provider registry behind one interface, ranked by what
+makes a track usable (language first, then non-SDH, provider order, popularity):
+
+| Source | Keyed on | Limits | Status |
+|---|---|---|---|
+| **SubDL** | **TMDB id** | 2,000 req/day free | ✅ **primary** — Subscene's successor |
+| `subtitles.website` | IMDb id | 10/day guest | ✅ zero-setup fallback |
+| OpenSubtitles v1 | IMDb id | 5/day anon, 20/day account | ✅ deepest catalogue, weakest free tier |
+| Podnapisi | — | — | ❌ **dead** |
+
+**On Subscene:** it has been shut down since **May 2024** — `subscene.com` is a
+parked "Subscene is closed" page. Every "Subscene API wrapper" on GitHub targets
+a site that no longer exists, so do not spend time on that route again. SubDL
+absorbed the archive and provides the same IMDb/TMDB-keyed lookup properly, with
+a documented API and a 100× better free tier than OpenSubtitles.
+
+Because SubDL keys on **TMDB id**, subtitles now work on any title immediately —
+the IMDb-id prerequisite this engine originally needed is gone.
 
 **Files:**
-- `main/subtitles/parse.ts` — pure parser + `toWebVtt` (11 tests)
-- `main/subtitles/client.ts` — providers, cache, ranking
-- `renderer/components/SubtitleOverlay.tsx` — overlay + picker + offset + Sync
+- `main/subtitles/parse.ts` — pure SRT + WebVTT parser (11 tests)
+- `main/subtitles/providers.ts` — the three providers behind one interface
+- `main/subtitles/unzip.ts` — season-pack reader (10 tests, incl. episode 2 vs 12)
+- `main/subtitles/client.ts` — fan-out, ranking, cache
+- `renderer/lib/playerSync.ts` — postMessage normalisation (14 tests)
+- `renderer/components/SubtitleOverlay.tsx` — overlay, picker, offset, Sync
 
 **Remaining for Phase B:**
-- [ ] Set an OpenSubtitles key in Settings → Playback (UI + `get`/`set`)
-- [ ] Add subtitle language + source preferences to Settings → Playback
-- [ ] "Clear subtitle cache" button
-- [ ] **Verify end to end in a running app** — the engine is unit-tested and
-      the provider was verified by hand, but the full watch flow has not been
-      exercised against a live stream yet.
+- [ ] **Verify end to end in a running app.** The parser, zip reader and message
+      normaliser are unit-tested, and each provider was verified by hand — but
+      no subtitle has yet been watched through the overlay on a live stream, and
+      the postMessage path has never run against a real player.
+- [ ] Confirm the sync channel actually fires in Electron's `<webview>`. A
+      webview is a real browser context, so the message should reach our window
+      listener, but this is assumption-by-analogy and worth proving.
 
 ### Phase C — TMDB feature gaps ✅ **SHIPPED** (one item left)
 

@@ -24,12 +24,20 @@ library or API key).
 
 ## Not yet looked at
 
+- **Player sync end to end.** `lib/playerSync.ts` listens for the postMessage
+  channel embed players use to report playback. The normaliser is unit-tested
+  against every known message shape (14 tests), and a live HAR confirmed
+  VidLove emits that shape — but it has never run inside Electron's `<webview>`.
+  A webview is a full browser context so the message should arrive, and that is
+  exactly the kind of assumption worth proving rather than trusting.
+- **Subtitles end to end.** The parser (11 tests), season-pack reader (10 tests)
+  and providers are covered, and SubDL plus the archive format were verified by
+  hand — but no subtitle has been watched through the overlay on a live stream.
+- **SubDL season packs against the real API.** The zip reader is tested against
+  archives built locally, including the episode-2-vs-12 case. Real packs use
+  messier filenames; that path needs a real download to confirm.
 - **Person and collection modals.** Built and compiling; no screenshot, no
-  live run. Both are new surfaces with their own scroll and empty states.
-- **Subtitles end to end.** The parser is unit-tested (11 tests) and the
-  provider was verified by hand, but no subtitle has been watched on a real
-  stream through the overlay. This is the single largest untested surface.
-  The one-click sync needs a human to confirm it feels right.
+  live run.
 - **OpenSubtitles with a real key.** The code path is written; only the
   no-key path has been exercised.
 
