@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../lib/api'
-import type { SubtitleCandidate, SubtitleCue, SubtitleTrack } from '../lib/api'
+import type { SubtitleProviderReport, SubtitleCandidate, SubtitleCue, SubtitleTrack } from '../lib/api'
 import { cn } from '../lib/utils'
 import { SUB_LANGUAGES } from '../lib/languages'
 
@@ -55,6 +55,7 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
   const [candidates, setCandidates] = useState<SubtitleCandidate[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reports, setReports] = useState<SubtitleProviderReport[] | null>(null)
 
   // Offset is per (title, episode) so calibration survives a rewatch.
   const offsetKey = `cinetrack.sub-offset.${tmdbId}.${season ?? 'm'}.${episode ?? 'm'}`
@@ -126,15 +127,13 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
     persistOffset(offset + (position - activeCue.start))
   }, [activeCue, position, offset, persistOffset])
 
-  const search = useCallback(async () => {
-    // No IMDb gate here any more. SubDL keys on TMDB id, which every title has,
-// so subtitles work before (and without) an IMDb id ever being fetched. The
-// IMDb-only providers simply return nothing and SubDL covers the search.
+const search = useCallback(async () => {
     setPickerOpen(true)
     setLoading(true)
     setError(null)
+    setReports(null)
     try {
-      const results = await api.subtitles.search(
+      const res = await api.subtitles.search(
         tmdbId,
         kind,
         imdbId,
@@ -142,12 +141,26 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
         episode ?? null,
         language
       )
-      setCandidates(results)
-      if (!results.length) {
+      setCandidates(res.candidates)
+      setReports(res.providers)
+
+      if (!res.candidates.length) {
+        // Say *why* it was empty. "No subtitles found" for a rejected API key
+        // is indistinguishable from a film that genuinely has none, and the
+        // user has no way to tell which they are looking at.
+        if (res.nothingConfigured) {
+          setError('No subtitle source is set up. Add a SubDL key in Settings → Playback.')
+          return
+        }
+        const failed = res.providers.filter(p => !p.ok)
+        if (failed.length) {
+          setError(failed.map(p => `${p.label}: ${p.error}`).join('\n'))
+          return
+        }
         setError(
           imdbId
             ? 'No subtitles found for this title.'
-            : 'No subtitles found. Some sources need this title\'s IMDb id — open it once with TMDB connected.'
+            : "No subtitles found. This title has no IMDb id yet, which some sources need — open it once with TMDB connected."
         )
       }
     } catch (e) {
@@ -317,7 +330,32 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
             <div className="max-h-[46vh] overflow-y-auto p-2">
               {loading && <div className="px-3 py-6 text-center text-xs text-ink-dim">Searching…</div>}
               {!loading && error && (
-                <div className="px-3 py-6 text-center text-xs text-crimson-soft">{error}</div>
+                <div className="px-3 py-5 text-center text-xs text-crimson-soft">
+                  {error.split('\n').map((line, i) => (
+                    <p key={i} className="whitespace-pre-line">
+                      {line}
+                    </p>
+                  ))}
+                  {reports && reports.length > 0 && (
+                    <ul className="mx-auto mt-3 max-w-xs space-y-1 text-left text-[10.5px] font-normal text-ink-dim">
+                      {reports.map(p => (
+                        <li key={p.id} className="flex items-start gap-1.5">
+                          <span className={p.ok ? 'text-emerald' : 'text-crimson'}>
+                            {p.ok ? '•' : '✕'}
+                          </span>
+                          <span>
+                            <span className="text-ink-soft">{p.label}</span>{' '}
+                            {p.ok
+                              ? p.count > 0
+                                ? `— ${p.count} found`
+                                : '— nothing for this title'
+                              : `— ${p.error}`}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
               {!loading && !error && candidates.length === 0 && (
                 <div className="px-3 py-6 text-center text-xs text-ink-dim">No results.</div>

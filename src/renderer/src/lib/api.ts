@@ -65,6 +65,21 @@ export interface SubtitleProviderInfo {
   configured: boolean
 }
 
+/** Per-provider outcome of one search, so failures can be shown, not hidden. */
+export interface SubtitleProviderReport {
+  id: string
+  label: string
+  ok: boolean
+  count: number
+  error: string | null
+}
+
+export interface SubtitleSearchResult {
+  candidates: SubtitleCandidate[]
+  providers: SubtitleProviderReport[]
+  nothingConfigured: boolean
+}
+
 /** Payload for creating a custom status. */
 export interface CreateStatusInput {
   label: string
@@ -165,7 +180,7 @@ export interface CineTrackApi {
       episode?: number | null,
       languageCode?: string,
       providers?: string[]
-    ) => Promise<SubtitleCandidate[]>
+    ) => Promise<SubtitleSearchResult>
     load: (
       candidate: SubtitleCandidate,
       tmdbId: number,

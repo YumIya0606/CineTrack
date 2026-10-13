@@ -5,11 +5,19 @@ import { getSetting } from '../db/queries'
 import { parseSubtitles } from './parse'
 import { PROVIDERS, getProvider } from './providers'
 import type { MediaKind } from '@shared/types'
-import type { ProviderContext, SubtitleCandidate, SubtitleProvider, SubtitleTrack } from './types'
+import type {
+  ProviderContext,
+  ProviderReport,
+  SubtitleCandidate,
+  SubtitleProvider,
+  SubtitleSearchResult,
+  SubtitleTrack
+} from './types'
 
 export { parseSubtitles }
 export { PROVIDERS, getProvider }
 export type { SubtitleCandidate, SubtitleProvider, SubtitleTrack }
+export type { ProviderReport, SubtitleSearchResult }
 export type { SubtitleCue } from './parse'
 
 /**
@@ -131,18 +139,34 @@ function activeProviders(preferred?: string[]): SubtitleProvider[] {
   return order.filter(p => p.isConfigured())
 }
 
+
+/** Turns a thrown provider error into something worth showing a person. */
+function explain(err: unknown, id: string): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  if (/\b40[13]\b/.test(raw) && id === 'subdl') {
+    return 'SubDL rejected your API key. Check it in Settings → Playback.'
+  }
+  if (/403/.test(raw)) return 'Access denied — the API key was rejected.'
+  if (/429/.test(raw)) return 'Rate limited. Too many searches in a short window.'
+  if (/ENOTFOUND|EAI_AGAIN|fetch failed/i.test(raw)) {
+    return 'Could not reach the provider (network or DNS failure).'
+  }
+  return raw
+}
+
 /**
  * Searches every configured provider and merges the results.
  *
- * A provider that errors is skipped rather than failing the whole search — one
- * dead service must not block the others, and the user should still get a
- * usable list from whatever is left.
+ * A provider that fails is reported rather than silently dropped. That
+ * distinction matters: an earlier version logged the failure to the console and
+ * returned an empty list, so a rejected API key looked exactly like "this film
+ * has no subtitles" and gave the user nothing to act on.
  */
 export async function searchSubtitles(
   tmdbId: number,
   kind: MediaKind,
   opts: SearchOptions & { season?: number | null; episode?: number | null; imdbId?: string | null }
-): Promise<SubtitleCandidate[]> {
+): Promise<SubtitleSearchResult> {
   const ctx: ProviderContext = {
     tmdbId,
     imdbId: opts.imdbId ?? null,
@@ -153,20 +177,47 @@ export async function searchSubtitles(
   }
 
   const providers = activeProviders(opts.providers)
+  if (!providers.length) {
+    return {
+      candidates: [],
+      nothingConfigured: true,
+      providers: PROVIDERS.map(p => ({
+        id: p.id,
+        label: p.label,
+        ok: false,
+        count: 0,
+        error: 'Not set up. Add a key in Settings → Playback.'
+      }))
+    }
+  }
+
   const results = await Promise.allSettled(
     providers.map(async p => {
       const found = await p.search(ctx)
-      return found.map(c => ({ ...c, provider: p.id }))
+      return { id: p.id, label: p.label, found: found.map(c => ({ ...c, provider: p.id })) }
     })
   )
 
   const merged: SubtitleCandidate[] = []
-  for (const r of results) {
-    if (r.status === 'fulfilled') merged.push(...r.value)
-    else console.error('[subtitles] provider failed:', r.reason)
-  }
+  const reports: ProviderReport[] = []
 
-  return rankCandidates(merged, ctx.languageCode)
+  results.forEach((r, i) => {
+    const p = providers[i]!
+    if (r.status === 'fulfilled') {
+      merged.push(...r.value.found)
+      reports.push({ id: p.id, label: p.label, ok: true, count: r.value.found.length, error: null })
+    } else {
+      const message = explain(r.reason, p.id)
+      console.error(`[subtitles] ${p.id} failed:`, r.reason)
+      reports.push({ id: p.id, label: p.label, ok: false, count: 0, error: message })
+    }
+  })
+
+  return {
+    candidates: rankCandidates(merged, ctx.languageCode),
+    providers: reports,
+    nothingConfigured: false
+  }
 }
 
 /**

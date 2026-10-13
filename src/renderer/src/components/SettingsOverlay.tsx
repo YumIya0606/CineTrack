@@ -50,6 +50,9 @@ export default function SettingsOverlay() {
   const [osKey, setOsKey] = useState('')
   const [subdlKey, setSubdlKey] = useState('')
   const [subCache, setSubCache] = useState({ files: 0, bytes: 0 })
+  // Blocks the auto-save effect until the stored values have been read, so
+  // opening Settings cannot erase a key the user already saved.
+  const [subsLoaded, setSubsLoaded] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -81,22 +84,35 @@ export default function SettingsOverlay() {
         /* an older main build without the channel just shows empty state */
       })
 
-    api.settings.get<string>('subtitles.language').then(l => l && setSubLang(l))
+api.settings.get<string>('subtitles.language').then(l => {
+      if (l) setSubLang(l)
+      setSubsLoaded(true)
+    })
     api.settings.get<boolean>('subtitles.defaultOff').then(v => v !== null && setSubLangOff(v))
-api.settings.get<string>('subtitles.opensubtitlesKey').then(k => k && setOsKey(k))
+    api.settings.get<string>('subtitles.opensubtitlesKey').then(k => k && setOsKey(k))
     api.settings.get<string>('subtitles.subdlKey').then(k => k && setSubdlKey(k))
     api.subtitles.stats().then(setSubCache).catch(() => undefined)
   }, [open])
 
-  // Subtitle settings save immediately - they are playback preferences, not
-  // credentials, and a user changing language shouldn't need to hit Save.
+  /**
+   * Subtitle settings save immediately — they are playback preferences, not
+   * credentials, and nobody should have to hunt for a Save button to change
+   * their subtitle language.
+   *
+   * The `subsLoaded` gate is load-bearing, not ceremony. Without it this effect
+   * fires on open with empty state and writes `null` over the stored API keys.
+   * Both the read and the write are async IPC, so whichever lands first wins:
+   * when the write did, the read returned null and the key was destroyed. That
+   * is why a key the user had definitely entered would come back empty, and
+   * then every subtitle search silently found nothing.
+   */
   useEffect(() => {
-    if (!open) return
+    if (!open || !subsLoaded) return
     api.settings.set('subtitles.language', subLang).catch(() => undefined)
     api.settings.set('subtitles.defaultOff', subLangOff).catch(() => undefined)
     api.settings.set('subtitles.opensubtitlesKey', osKey.trim() || null).catch(() => undefined)
     api.settings.set('subtitles.subdlKey', subdlKey.trim() || null).catch(() => undefined)
-  }, [open, subLang, subLangOff, osKey, subdlKey])
+  }, [open, subsLoaded, subLang, subLangOff, osKey, subdlKey])
 
   const handleSave = async () => {
     await api.settings.set('tmdb.readToken', readToken.trim() || null)

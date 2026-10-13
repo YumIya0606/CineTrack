@@ -121,9 +121,30 @@ export const subdlProvider: SubtitleProvider = {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     })
-    if (!res.ok) throw new Error(`SubDL ${res.status}`)
-    const body = (await res.json()) as { status?: boolean; subtitles?: SubdlSubtitle[] }
-    if (body.status === false) throw new Error('SubDL rejected the request')
+    if (!res.ok) {
+      // SubDL answers a rejected key with 403 and a JSON body explaining why.
+      // Surfacing the status alone leaves the user guessing between "wrong
+      // key", "no key" and "blocked", so name the most likely cause.
+      throw new Error(
+        res.status === 401 || res.status === 403
+          ? 'SubDL rejected your API key (403). Check it in Settings → Playback.'
+          : `SubDL ${res.status}`
+      )
+    }
+    const body = (await res.json()) as {
+      status?: boolean
+      error?: string
+      message?: string
+      subtitles?: SubdlSubtitle[]
+    }
+    if (body.status === false) {
+      throw new Error(body.message || body.error || 'SubDL rejected the request')
+    }
+    if (!Array.isArray(body.subtitles)) {
+      // A 200 with no `subtitles` array means the response shape changed or the
+      // key has no quota. Either way "no array" must not read as "no results".
+      throw new Error('SubDL returned an unexpected response (no subtitles array)')
+    }
 
     return (body.subtitles ?? [])
       .filter(sub => sub.url || sub.unpack_files?.length)

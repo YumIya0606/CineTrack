@@ -55,3 +55,19 @@ export interface SubtitleProvider {
   search(ctx: ProviderContext): Promise<SubtitleCandidate[]>
   download(candidate: SubtitleCandidate): Promise<string>
 }
+
+/** Per-provider outcome of one search, so failures can be shown, not hidden. */
+export interface ProviderReport {
+  id: string
+  label: string
+  ok: boolean
+  count: number
+  error: string | null
+}
+
+export interface SubtitleSearchResult {
+  candidates: SubtitleCandidate[]
+  providers: ProviderReport[]
+  /** True when nothing was even attempted (no provider configured). */
+  nothingConfigured: boolean
+}
