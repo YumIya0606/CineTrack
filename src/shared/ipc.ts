@@ -48,6 +48,7 @@ export const IPC = {
   SUBTITLES_CACHED: 'subtitles:cached',
   SUBTITLES_STATS: 'subtitles:stats',
   SUBTITLES_CLEAR: 'subtitles:clear',
+  SUBTITLES_PROVIDERS: 'subtitles:providers',
   COLLECTION_LIST: 'collection:list',
   COLLECTION_CREATE: 'collection:create',
   COLLECTION_RENAME: 'collection:rename',

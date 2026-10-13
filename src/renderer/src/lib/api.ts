@@ -38,6 +38,9 @@ export interface SubtitleCandidate {
   downloads: number
   hearingImpaired: boolean
   provider: string
+  /** Carried to download so a season pack can yield the right episode. */
+  season?: number | null
+  episode?: number | null
 }
 
 export interface SubtitleCue {
@@ -52,6 +55,14 @@ export interface SubtitleTrack {
   languageCode: string
   release: string
   cues: SubtitleCue[]
+}
+
+/** A subtitle source, plus whether the user has finished configuring it. */
+export interface SubtitleProviderInfo {
+  id: string
+  label: string
+  blurb: string
+  configured: boolean
 }
 
 /** Payload for creating a custom status. */
@@ -147,10 +158,13 @@ export interface CineTrackApi {
   }
   subtitles: {
     search: (
-      imdbId: string,
+      tmdbId: number,
+      kind: MediaKind,
+      imdbId: string | null,
       season?: number | null,
       episode?: number | null,
-      languageCode?: string
+      languageCode?: string,
+      providers?: string[]
     ) => Promise<SubtitleCandidate[]>
     load: (
       candidate: SubtitleCandidate,
@@ -168,6 +182,7 @@ export interface CineTrackApi {
     ) => Promise<SubtitleTrack | null>
     stats: () => Promise<{ files: number; bytes: number }>
     clear: () => Promise<{ files: number }>
+    providers: () => Promise<SubtitleProviderInfo[]>
   }
   collections: {
     list: () => Promise<Collection[]>

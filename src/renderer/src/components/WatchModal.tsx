@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '../lib/utils'
 import { api } from '../lib/api'
+import { usePlayerSync, useWallClock } from '../lib/playerSync'
 import { getResumePoint, saveResumePoint, clearResumePoint } from '../lib/watch-progress'
 import SubtitleOverlay from './SubtitleOverlay'
 import type { MediaKind } from '@shared/types'
@@ -30,11 +31,15 @@ interface WatchModalProps {
  * Kept deliberately short — every entry below is verified working end to end:
  *   - VidLink    — cleanest player, TMDB-id native, plays in-page. Default.
  *   - MultiEmbed — TMDB-id native, plays in-page. Reliable second choice.
+ *   - VidLove    — TMDB-id native, and the only one verified to broadcast its
+ *                 playback position over postMessage. That turns subtitle
+ *                 timing from guesswork into exact, and makes watch time
+ *                 measured rather than estimated. See lib/playerSync.ts.
  *
  * Removed after real-world testing:
  *   - SmashyStream / VidSrc — render the embed shell but the inner player
  *     never produces a frame, so the panel goes blank once the loading veil
- *     drops.
+ *     drops. Neither emits sync messages either.
  *   - StreamingNow — answers "Not found! This video doesn't exist." for both
  *     numeric TMDB ids and IMDb ids.
  *   - 2Embed — its embed does window.location.replace to a *detail* page (not
@@ -53,6 +58,13 @@ const SOURCES = [
     movie: (id: number) => `https://multiembed.mov/?video_id=${id}&tmdb=1`,
     tv: (id: number, s: number, e: number) =>
       `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}`
+  },
+  {
+    id: 'vidlove',
+    label: 'VidLove',
+    movie: (id: number) => `https://player.vidlove.cc/embed/movie/${id}`,
+    tv: (id: number, s: number, e: number) =>
+      `https://player.vidlove.cc/embed/tv/${id}/${s}/${e}`
   }
 ]
 
@@ -85,11 +97,8 @@ export default function WatchModal({
   // Wall-clock playback position for the subtitle overlay. The embed exposes no
   // <video> we can read (verified), so we own the clock and the user corrects
   // it with one-click sync.
-  const [position, setPosition] = useState(0)
   const [subtitlesOn, setSubtitlesOn] = useState(false)
   const [subtitleLang, setSubtitleLang] = useState('en')
-  const clockRef = useRef<number | null>(null)
-  const startedAt = useRef<number>(Date.now())
 
   // Honour the saved default, and remember a language choice made in the picker.
   useEffect(() => {
@@ -150,31 +159,39 @@ export default function WatchModal({
     return () => clearTimeout(t)
   }, [tmdbId, kind, sourceId, season, episode])
 
-  // Drive the subtitle clock. Restarting on episode/source change keeps the
-  // timeline aligned with whatever the user just loaded.
-  useEffect(() => {
-    startedAt.current = Date.now()
-    setPosition(0)
-    clockRef.current = window.setInterval(() => {
-      setPosition((Date.now() - startedAt.current) / 1000)
-    }, 250)
-    return () => {
-      if (clockRef.current) window.clearInterval(clockRef.current)
-      clockRef.current = null
-    }
-  }, [src, reloadKey])
+  // Playback position.
+  //
+  // Preferred source is the provider's own reported currentTime, obtained from
+  // its postMessage sync channel. That is exact, so subtitles need no manual
+  // calibration and watch time is measured rather than guessed.
+  //
+  // Fallback is a wall clock, because the providers probed before this shipped
+  // (vidsrc and its iframe chain) expose no <video> at all and emit nothing. On
+  // those, elapsed time is the only signal available — which is exactly why the
+  // overlay's manual Sync control still exists.
+  const sync = usePlayerSync()
+  const wall = useWallClock(!!src && !loading)
+  const position = sync.synced && sync.currentTime != null ? sync.currentTime : wall
 
-  // Auto-mark watched after the player has been up long enough to count as a
-  // real view (or 60% of a movie's runtime when known).
+  // Auto-mark watched on real progress rather than elapsed time.
+  //
+  // The previous version fired 90 seconds after the modal opened, so opening a
+  // title, walking away, and coming back later marked it watched. With a
+  // syncing provider we can require a genuine share of the film. Without one
+  // we keep an elapsed-time fallback, but at a bar a glance cannot clear.
   useEffect(() => {
     if (!src || !onMarkWatched || autoMarked) return
-    const t = setTimeout(() => {
+
+    const fraction = sync.duration ? sync.duration * 0.6 : 120
+    const check = setInterval(() => {
+      if (position < fraction) return
+      clearInterval(check)
       setAutoMarked(true)
       onMarkWatched(kind === 'series' ? season : null, kind === 'series' ? episode : null)
-    }, 90_000)
-    watchedTimer.current = t
-    return () => clearTimeout(t)
-  }, [src, onMarkWatched, autoMarked, kind, season, episode])
+    }, 1000)
+    watchedTimer.current = check
+    return () => clearInterval(check)
+  }, [src, onMarkWatched, autoMarked, kind, season, episode, position, sync.duration])
 
   // Dismiss the loading veil. Provider pages commonly never fire a clean
   // `load`: the ad blocker cancels and hangs sub-resources, so the page is
@@ -435,6 +452,7 @@ export default function WatchModal({
               season={kind === 'series' ? season : null}
               episode={kind === 'series' ? episode : null}
               position={position}
+              exactClock={sync.synced && sync.currentTime != null}
               visible={subtitlesOn && !loading}
               language={subtitleLang}
               onLanguageChange={lang => {

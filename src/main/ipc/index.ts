@@ -50,7 +50,8 @@ import {
   readCachedTrack,
   subtitleCacheKey,
   cacheStats,
-  clearSubtitleCache
+  clearSubtitleCache,
+  providerStatus
 } from '../subtitles/client'
 import type { SubtitleCandidate } from '../subtitles/client'
 import type { LiveDetails, CatalogItem } from '@shared/types'
@@ -324,11 +325,21 @@ export function registerIpcHandlers(): void {
     IPC.SUBTITLES_SEARCH,
     async (
       _e,
-      imdbId: string,
+      tmdbId: number,
+      kind: MediaKind,
+      imdbId: string | null,
       season?: number | null,
       episode?: number | null,
-      languageCode?: string
-    ) => searchSubtitles(imdbId, season ?? null, episode ?? null, { languageCode })
+      languageCode?: string,
+      providers?: string[]
+    ) =>
+      searchSubtitles(tmdbId, kind, {
+        imdbId,
+        season: season ?? null,
+        episode: episode ?? null,
+        languageCode,
+        providers
+      })
   )
   ipcMain.handle(
     IPC.SUBTITLES_LOAD,
@@ -348,6 +359,7 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.SUBTITLES_STATS, () => cacheStats())
   ipcMain.handle(IPC.SUBTITLES_CLEAR, () => clearSubtitleCache())
+  ipcMain.handle(IPC.SUBTITLES_PROVIDERS, () => providerStatus())
 
   /* ---------- Collections (user lists) ---------- */
   ipcMain.handle(IPC.COLLECTION_LIST, (): Collection[] => listCollections())

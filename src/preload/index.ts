@@ -40,6 +40,9 @@ export interface SubtitleCandidate {
   downloads: number
   hearingImpaired: boolean
   provider: string
+  /** Carried to download so a season pack can yield the right episode. */
+  season?: number | null
+  episode?: number | null
 }
 
 export interface SubtitleCue {
@@ -54,6 +57,14 @@ export interface SubtitleTrack {
   languageCode: string
   release: string
   cues: SubtitleCue[]
+}
+
+/** A subtitle source, plus whether the user has finished configuring it. */
+export interface SubtitleProviderInfo {
+  id: string
+  label: string
+  blurb: string
+  configured: boolean
 }
 
 /** Payload for creating a custom status. */
@@ -163,12 +174,24 @@ const api = {
   },
   subtitles: {
     search: (
-      imdbId: string,
+      tmdbId: number,
+      kind: MediaKind,
+      imdbId: string | null,
       season?: number | null,
       episode?: number | null,
-      languageCode?: string
+      languageCode?: string,
+      providers?: string[]
     ): Promise<SubtitleCandidate[]> =>
-      ipcRenderer.invoke(IPC.SUBTITLES_SEARCH, imdbId, season, episode, languageCode),
+      ipcRenderer.invoke(
+        IPC.SUBTITLES_SEARCH,
+        tmdbId,
+        kind,
+        imdbId,
+        season,
+        episode,
+        languageCode,
+        providers
+      ),
     load: (
       candidate: SubtitleCandidate,
       tmdbId: number,
@@ -187,7 +210,9 @@ const api = {
       ipcRenderer.invoke(IPC.SUBTITLES_CACHED, tmdbId, kind, languageCode, season, episode),
     stats: (): Promise<{ files: number; bytes: number }> =>
       ipcRenderer.invoke(IPC.SUBTITLES_STATS),
-    clear: (): Promise<{ files: number }> => ipcRenderer.invoke(IPC.SUBTITLES_CLEAR)
+    clear: (): Promise<{ files: number }> => ipcRenderer.invoke(IPC.SUBTITLES_CLEAR),
+    providers: (): Promise<SubtitleProviderInfo[]> =>
+      ipcRenderer.invoke(IPC.SUBTITLES_PROVIDERS)
   },
   collections: {
     list: (): Promise<Collection[]> => ipcRenderer.invoke(IPC.COLLECTION_LIST),

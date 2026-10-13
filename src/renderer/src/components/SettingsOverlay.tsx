@@ -48,6 +48,7 @@ export default function SettingsOverlay() {
   const [subLang, setSubLang] = useState(DEFAULT_SUB_LANGUAGE)
   const [subLangOff, setSubLangOff] = useState(false)
   const [osKey, setOsKey] = useState('')
+  const [subdlKey, setSubdlKey] = useState('')
   const [subCache, setSubCache] = useState({ files: 0, bytes: 0 })
 
   useEffect(() => {
@@ -82,18 +83,20 @@ export default function SettingsOverlay() {
 
     api.settings.get<string>('subtitles.language').then(l => l && setSubLang(l))
     api.settings.get<boolean>('subtitles.defaultOff').then(v => v !== null && setSubLangOff(v))
-    api.settings.get<string>('subtitles.opensubtitlesKey').then(k => k && setOsKey(k))
+api.settings.get<string>('subtitles.opensubtitlesKey').then(k => k && setOsKey(k))
+    api.settings.get<string>('subtitles.subdlKey').then(k => k && setSubdlKey(k))
     api.subtitles.stats().then(setSubCache).catch(() => undefined)
   }, [open])
 
-  // Subtitle settings save immediately — they are playback preferences, not
+  // Subtitle settings save immediately - they are playback preferences, not
   // credentials, and a user changing language shouldn't need to hit Save.
   useEffect(() => {
     if (!open) return
     api.settings.set('subtitles.language', subLang).catch(() => undefined)
     api.settings.set('subtitles.defaultOff', subLangOff).catch(() => undefined)
     api.settings.set('subtitles.opensubtitlesKey', osKey.trim() || null).catch(() => undefined)
-  }, [open, subLang, subLangOff, osKey])
+    api.settings.set('subtitles.subdlKey', subdlKey.trim() || null).catch(() => undefined)
+  }, [open, subLang, subLangOff, osKey, subdlKey])
 
   const handleSave = async () => {
     await api.settings.set('tmdb.readToken', readToken.trim() || null)
@@ -563,17 +566,32 @@ export default function SettingsOverlay() {
                         </button>
                       </div>
 
+<input
+                        type="password"
+                        value={subdlKey}
+                        onChange={e => setSubdlKey(e.target.value)}
+                        placeholder="SubDL API key (recommended - free, 2,000 searches/day)"
+                        className="no-drag mt-2.5 w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:border-gold focus:outline-none"
+                      />
+                      <p className="mt-2 text-[10.5px] leading-relaxed text-ink-dim">
+                        Get a free key at subdl.com/panel/api. SubDL inherited Subscene's
+                        archive, is keyed by TMDB id, and has the best series coverage of the
+                        three sources. Nothing works without an account except the built-in
+                        provider below.
+                      </p>
+
                       <input
                         type="password"
                         value={osKey}
                         onChange={e => setOsKey(e.target.value)}
-                        placeholder="OpenSubtitles API key (optional — a larger catalogue)"
-                        className="no-drag mt-2.5 w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:border-gold focus:outline-none"
+                        placeholder="OpenSubtitles API key (optional - deepest catalogue)"
+                        className="no-drag mt-3 w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:border-gold focus:outline-none"
                       />
                       <p className="mt-2 text-[10.5px] leading-relaxed text-ink-dim">
-                        Leave blank to use the built-in provider, which needs no account. Add a
-                        free OpenSubtitles key for a much larger catalogue. Your key stays on this
-                        machine and is never sent anywhere except OpenSubtitles.
+                        The built-in source needs no account and stays on by default.
+                        OpenSubtitles has the largest catalogue but a free key only allows 20
+                        downloads a day, so it works best as a fallback. Keys stay on this
+                        machine and go nowhere except the provider you paste them into.
                       </p>
 
                       <div className="mt-3 flex items-center gap-2">

@@ -1,65 +1,42 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
-import { gunzipSync } from 'zlib'
 import { getDataDir } from '../db'
 import { getSetting } from '../db/queries'
 import { parseSubtitles } from './parse'
-import type { SubtitleCue } from './parse'
+import { PROVIDERS, getProvider } from './providers'
 import type { MediaKind } from '@shared/types'
+import type { ProviderContext, SubtitleCandidate, SubtitleProvider, SubtitleTrack } from './types'
 
 export { parseSubtitles }
-export type { SubtitleCue }
+export { PROVIDERS, getProvider }
+export type { SubtitleCandidate, SubtitleProvider, SubtitleTrack }
+export type { SubtitleCue } from './parse'
 
 /**
- * Subtitle fetching, parsing and local caching.
+ * Subtitle orchestration: provider fan-out, ranking, and the local cache.
  *
- * WHY THIS EXISTS — the architectural constraint, verified by probing the live
+ * WHY AN OVERLAY — the architectural constraint, verified by probing the live
  * embed providers:
  *
- *   CineTrack plays inside a <webview> pointing at third-party embeds. We
- *   probed vidsrc.to and walked its iframe chain:
+ *   CineTrack plays inside a <webview> pointing at third-party embeds. Probing
+ *   vidsrc.to and walking its iframe chain:
  *
  *     vidsrc.to          -> 0 <video>, 5 iframes
  *       vsembed.ru       -> 0 <video>
  *         stellarconductornexus.com -> 0 <video>, 0 iframes
  *
- *   and attached the Chrome DevTools Protocol, which sees below same-origin
+ *   and attaching the Chrome DevTools Protocol, which sees below same-origin
  *   rules: the debugger attaches fine, but a play attempt yields an empty
  *   document and ZERO media requests.
  *
- *   So we cannot inject a native <track>, cannot read video.currentTime, and
- *   cannot lift the stream URL. Subtitles must therefore be fetched, parsed
- *   and rendered by us as an overlay, synchronised against a clock we control
- *   (see SubtitleLayer.tsx) and calibrated by the user with one-click sync.
+ *   So we cannot inject a native <track> and cannot read video.currentTime for
+ *   those providers. Subtitles are therefore fetched, parsed and rendered by us.
+ *
+ *   Some providers *do* broadcast their playback state to the embedding page
+ *   via postMessage, which is what `playerSync.ts` listens for. When one does,
+ *   timing is exact and the manual Sync control is unnecessary; when none does,
+ *   we fall back to a wall clock the user calibrates by hand.
  */
-
-const REQUEST_TIMEOUT_MS = 12000
-
-/* ---------- Types ---------- */
-
-export interface SubtitleCandidate {
-  id: string
-  /** Release name, e.g. "The.Matrix.1999.1080p.BrRip.x264.YIFY.en" */
-  release: string
-  format: string
-  language: string
-  languageCode: string
-  /** Provider-reported quality/download signal; used to rank candidates. */
-  downloads: number
-  /** True for machine-translated tracks, surfaced so users can skip them. */
-  hearingImpaired: boolean
-  /** Seconds of timing offset this release needs, when the provider knows. */
-  timeshift?: number
-  provider: string
-}
-
-export interface SubtitleTrack {
-  key: string
-  language: string
-  languageCode: string
-  release: string
-  cues: SubtitleCue[]
-}
 
 /* ---------- Cache ---------- */
 
@@ -119,7 +96,7 @@ export function clearSubtitleCache(): { files: number } {
   return { files: files.length }
 }
 
-function cacheStats(): { files: number; bytes: number } {
+export function cacheStats(): { files: number; bytes: number } {
   const dir = cacheDir()
   const files = readdirSync(dir).filter(f => f.endsWith('.json'))
   let bytes = 0
@@ -133,169 +110,7 @@ function cacheStats(): { files: number; bytes: number } {
   return { files: files.length, bytes }
 }
 
-/* ---------- Providers ---------- */
-
-interface ProviderContext {
-  imdbId: string
-  season?: number | null
-  episode?: number | null
-  languageCode: string
-}
-
-/**
- * subtitles.website — verified working with no authentication.
- * GET /search/subtitles?imdb=tt0133093&language=en
- * GET /search/download/:id -> { download_url }
- */
-async function searchSubtitlesWebsite(ctx: ProviderContext): Promise<SubtitleCandidate[]> {
-  const base = 'https://subtitles.website/strapi/api'
-  const url =
-    `${base}/search/subtitles?imdb=${encodeURIComponent(ctx.imdbId)}` +
-    (ctx.season != null ? `&season=${ctx.season}` : '') +
-    (ctx.episode != null ? `&episode=${ctx.episode}` : '')
-
-  const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
-  if (!res.ok) throw new Error(`subtitles.website ${res.status}`)
-  const body = (await res.json()) as {
-    data?: {
-      id: string
-      release: string
-      language?: { code: string; name: string }
-      format?: string
-      downloads?: number
-    }[]
-  }
-
-  return (body.data ?? []).map(row => ({
-    id: row.id,
-    release: row.release,
-    format: row.format ?? 'srt',
-    language: row.language?.name ?? ctx.languageCode,
-    languageCode: row.language?.code ?? ctx.languageCode,
-    downloads: row.downloads ?? 0,
-    hearingImpaired: /sdh|hi/i.test(row.release),
-    provider: 'subtitles.website'
-  }))
-}
-
-async function downloadSubtitlesWebsite(id: string): Promise<string> {
-  const base = 'https://subtitles.website/strapi/api'
-  const res = await fetch(`${base}/search/download/${id}`, {
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-  })
-  if (!res.ok) throw new Error(`subtitles.website download ${res.status}`)
-  const body = (await res.json()) as { download_url?: string }
-  if (!body.download_url) throw new Error('No download URL returned')
-
-  const fileUrl = body.download_url.startsWith('http')
-    ? body.download_url
-    : `${base}${body.download_url}`
-
-  const file = await fetch(fileUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
-  if (!file.ok) throw new Error(`Subtitle file ${file.status}`)
-  return file.text()
-}
-
-/**
- * OpenSubtitles.com REST v1 — the best catalogue, but it needs the user's own
- * free API key (Settings → Playback). Authenticated accounts get 20 downloads
- * a day instead of 5.
- */
-async function searchOpenSubtitles(ctx: ProviderContext): Promise<SubtitleCandidate[]> {
-  const apiKey = getSetting<string>('subtitles.opensubtitlesKey')
-  if (!apiKey) throw new Error('No OpenSubtitles API key configured')
-
-  const params = new URLSearchParams({
-    imdb_id: ctx.imdbId.replace(/^tt/, ''),
-    languages: ctx.languageCode,
-    hearing_impaired: 'exclude'
-  })
-  if (ctx.season != null) params.set('season_number', String(ctx.season))
-  if (ctx.episode != null) params.set('episode_number', String(ctx.episode))
-
-  const res = await fetch(`https://api.opensubtitles.com/api/v1/subtitles?${params}`, {
-    headers: {
-      'Api-Key': apiKey,
-      'User-Agent': 'CineTrack v1.0.0',
-      'Content-Type': 'application/json'
-    },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-  })
-  if (!res.ok) throw new Error(`OpenSubtitles ${res.status}`)
-
-  const body = (await res.json()) as {
-    data?: {
-      id: number
-      attributes: {
-        release?: string | null
-        files?: { file_id: number; ext: string }[]
-        language: string
-        download_count?: number
-        hearing_impaired?: boolean
-        timings?: string | null
-      }
-    }[]
-  }
-
-  return (body.data ?? [])
-    .filter(d => d.attributes.files?.length)
-    .map(d => ({
-      id: String(d.attributes.files![0]!.file_id),
-      release: d.attributes.release ?? 'Unknown release',
-      format: d.attributes.files![0]!.ext,
-      language: d.attributes.language,
-      languageCode: d.attributes.language,
-      downloads: d.attributes.download_count ?? 0,
-      hearingImpaired: d.attributes.hearing_impaired ?? false,
-      provider: 'opensubtitles'
-    }))
-}
-
-/**
- * OpenSubtitles serves the file gzip-compressed and base64-wrapped inside JSON,
- * which is why this looks more involved than a plain GET.
- */
-async function downloadOpenSubtitles(fileId: string): Promise<string> {
-  const apiKey = getSetting<string>('subtitles.opensubtitlesKey')
-  if (!apiKey) throw new Error('No OpenSubtitles API key configured')
-
-  const login = await fetch('https://api.opensubtitles.com/api/v1/login', {
-    method: 'POST',
-    headers: {
-      'Api-Key': apiKey,
-      'Content-Type': 'application/json',
-      'User-Agent': 'CineTrack v1.0.0'
-    },
-    body: JSON.stringify({
-      username: getSetting<string>('subtitles.osUsername') ?? '',
-      password: getSetting<string>('subtitles.osPassword') ?? ''
-    }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-  })
-  if (!login.ok) throw new Error(`OpenSubtitles login failed (${login.status})`)
-  const { token } = (await login.json()) as { token?: string }
-  if (!token) throw new Error('OpenSubtitles returned no token')
-
-  const res = await fetch('https://api.opensubtitles.com/api/v1/download', {
-    method: 'POST',
-    headers: {
-      'Api-Key': apiKey,
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'CineTrack v1.0.0'
-    },
-    body: JSON.stringify({ file_id: Number(fileId) }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-  })
-  if (!res.ok) throw new Error(`OpenSubtitles download failed (${res.status})`)
-
-  const body = (await res.json()) as { data?: string }
-  if (!body.data) throw new Error('OpenSubtitles returned no file payload')
-  // The payload is base64 of a gzip archive, not plain text.
-  return gunzipSync(Buffer.from(body.data, 'base64')).toString('utf8')
-}
-
-/* ---------- Public API ---------- */
+/* ---------- Search ---------- */
 
 export interface SearchOptions {
   languageCode?: string
@@ -303,53 +118,86 @@ export interface SearchOptions {
   providers?: string[]
 }
 
-function configuredProviders(): string[] {
-  const list = ['subtitles.website']
-  if (getSetting<string>('subtitles.opensubtitlesKey')) list.push('opensubtitles')
-  return list
+/**
+ * The user's chosen order, falling back to the built-in ranking.
+ *
+ * Providers with no key are dropped here rather than failing inside the fan-out,
+ * so a half-configured setup still searches with whatever it does have.
+ */
+function activeProviders(preferred?: string[]): SubtitleProvider[] {
+  const order = preferred?.length
+    ? preferred.map(id => getProvider(id)).filter((p): p is SubtitleProvider => !!p)
+    : PROVIDERS
+  return order.filter(p => p.isConfigured())
 }
 
 /**
- * Searches the configured providers. A provider that errors is skipped rather
- * than failing the whole search — one dead service must not block the other.
+ * Searches every configured provider and merges the results.
+ *
+ * A provider that errors is skipped rather than failing the whole search — one
+ * dead service must not block the others, and the user should still get a
+ * usable list from whatever is left.
  */
 export async function searchSubtitles(
-  imdbId: string,
-  season?: number | null,
-  episode?: number | null,
-  opts: SearchOptions = {}
+  tmdbId: number,
+  kind: MediaKind,
+  opts: SearchOptions & { season?: number | null; episode?: number | null; imdbId?: string | null }
 ): Promise<SubtitleCandidate[]> {
   const ctx: ProviderContext = {
-    imdbId,
-    season: season ?? null,
-    episode: episode ?? null,
+    tmdbId,
+    imdbId: opts.imdbId ?? null,
+    kind,
+    season: opts.season ?? null,
+    episode: opts.episode ?? null,
     languageCode: opts.languageCode ?? 'en'
   }
-  const wanted = opts.providers?.length ? opts.providers : configuredProviders()
 
+  const providers = activeProviders(opts.providers)
   const results = await Promise.allSettled(
-    wanted.map(async provider => {
-      if (provider === 'opensubtitles') return searchOpenSubtitles(ctx)
-      return searchSubtitlesWebsite(ctx)
+    providers.map(async p => {
+      const found = await p.search(ctx)
+      return found.map(c => ({ ...c, provider: p.id }))
     })
   )
 
   const merged: SubtitleCandidate[] = []
   for (const r of results) {
     if (r.status === 'fulfilled') merged.push(...r.value)
-    else console.error(`[subtitles] provider failed:`, r.reason)
+    else console.error('[subtitles] provider failed:', r.reason)
   }
 
-  // Best first: prefer matching language, real (non-SDH) tracks, then the
-  // provider's own popularity signal.
-  const score = (c: SubtitleCandidate) => {
-    const lang = c.languageCode.slice(0, 2).toLowerCase() === ctx.languageCode.slice(0, 2).toLowerCase() ? 100 : 0
-    return lang + (c.hearingImpaired ? 0 : 10) + Math.min(5, c.downloads)
-  }
-  return merged.sort((a, b) => score(b) - score(a))
+  return rankCandidates(merged, ctx.languageCode)
 }
 
-/** Downloads + parses a candidate into cues. */
+/**
+ * Best first.
+ *
+ * The ordering encodes what actually makes a track usable: the right language
+ * is mandatory, non-SDH beats SDH, and a provider's own popularity signal
+ * breaks ties. Provider preference (the user's order) is respected within that
+ * by weighting the provider's rank into the score.
+ */
+export function rankCandidates(
+  candidates: SubtitleCandidate[],
+  languageCode: string
+): SubtitleCandidate[] {
+  const wanted = languageCode.slice(0, 2).toLowerCase()
+  const providerRank = new Map(PROVIDERS.map((p, i) => [p.id, i]))
+
+  const score = (c: SubtitleCandidate) => {
+    const lang = c.languageCode.slice(0, 2).toLowerCase() === wanted ? 1000 : 0
+    const notSdh = c.hearingImpaired ? 0 : 50
+    const provider = 20 - (providerRank.get(c.provider) ?? 9) * 5
+    const popularity = Math.min(20, Math.log10(Math.max(1, c.downloads)) * 8)
+    return lang + notSdh + provider + popularity
+  }
+
+  return [...candidates].sort((a, b) => score(b) - score(a))
+}
+
+/* ---------- Load ---------- */
+
+/** Downloads + parses a candidate into cues, then caches it. */
 export async function loadSubtitle(
   candidate: SubtitleCandidate,
   tmdbId: number,
@@ -357,11 +205,10 @@ export async function loadSubtitle(
   season?: number | null,
   episode?: number | null
 ): Promise<SubtitleTrack> {
-  const raw =
-    candidate.provider === 'opensubtitles'
-      ? await downloadOpenSubtitles(candidate.id)
-      : await downloadSubtitlesWebsite(candidate.id)
+  const provider = getProvider(candidate.provider)
+  if (!provider) throw new Error(`Unknown subtitle provider: ${candidate.provider}`)
 
+  const raw = await provider.download(candidate)
   const cues = parseSubtitles(raw)
   if (!cues.length) throw new Error('That subtitle file contained no readable cues')
 
@@ -376,4 +223,24 @@ export async function loadSubtitle(
   return track
 }
 
-export { cacheStats, cacheDir }
+/** Every provider plus whether the user has finished setting it up. */
+export function providerStatus(): {
+  id: string
+  label: string
+  blurb: string
+  configured: boolean
+}[] {
+  return PROVIDERS.map(p => ({
+    id: p.id,
+    label: p.label,
+    blurb: p.blurb,
+    configured: p.isConfigured()
+  }))
+}
+
+/** Used by the Settings screen to show which key is actually in play. */
+export function subdlKeyPresent(): boolean {
+  return (getSetting<string>('subtitles.subdlKey') ?? '').length > 0
+}
+
+export { cacheDir }

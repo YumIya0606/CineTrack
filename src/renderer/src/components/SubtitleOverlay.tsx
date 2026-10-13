@@ -11,8 +11,13 @@ interface SubtitleOverlayProps {
   kind: 'movie' | 'series'
   season?: number | null
   episode?: number | null
-  /** Wall-clock seconds since the user started playback. */
+  /** Wall-clock seconds since playback started. */
   position: number
+  /**
+   * True when `position` came from the provider's own reported currentTime
+   * rather than our wall clock. Only then is the overlay frame-accurate.
+   */
+  exactClock?: boolean
   visible: boolean
   /** Preferred subtitle language (BCP-47-ish 2-letter code). */
   language: string
@@ -38,6 +43,7 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
     season,
     episode,
     position,
+    exactClock,
     visible,
     language,
     onLanguageChange
@@ -94,6 +100,14 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
     return found
   }, [track, position, offset])
 
+  /**
+   * True when our clock is the player's real clock and no calibration is
+   * needed. WatchModal tells us by passing an exact position; the offset is
+   * then almost always zero, and we say so instead of showing a Sync button
+   * that would do nothing.
+   */
+  const exactlySynced = Boolean(exactClock) && Math.abs(offset) < 0.4
+
   const persistOffset = useCallback(
     (next: number) => {
       const clamped = Math.max(-600, Math.min(600, next))
@@ -113,17 +127,29 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
   }, [activeCue, position, offset, persistOffset])
 
   const search = useCallback(async () => {
-    if (!imdbId) {
-      setError('This title has no IMDb id yet — open it once with TMDB connected.')
-      return
-    }
+    // No IMDb gate here any more. SubDL keys on TMDB id, which every title has,
+// so subtitles work before (and without) an IMDb id ever being fetched. The
+// IMDb-only providers simply return nothing and SubDL covers the search.
     setPickerOpen(true)
     setLoading(true)
     setError(null)
     try {
-      const results = await api.subtitles.search(imdbId, season, episode, language)
+      const results = await api.subtitles.search(
+        tmdbId,
+        kind,
+        imdbId,
+        season ?? null,
+        episode ?? null,
+        language
+      )
       setCandidates(results)
-      if (!results.length) setError('No subtitles found for this title.')
+      if (!results.length) {
+        setError(
+          imdbId
+            ? 'No subtitles found for this title.'
+            : 'No subtitles found. Some sources need this title\'s IMDb id — open it once with TMDB connected.'
+        )
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -176,13 +202,35 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
             <button
               onClick={syncNow}
               title="Pin the current line to now (one-click sync)"
-              className="flex h-8 items-center gap-1.5 rounded-full border border-gold/50 bg-gold/15 px-3 text-[11px] font-semibold text-gold backdrop-blur transition hover:bg-gold/25"
+              className={cn(
+                'flex h-8 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold backdrop-blur transition',
+                exactlySynced
+                  ? 'border-emerald/40 bg-emerald/10 text-emerald'
+                  : 'border-gold/50 bg-gold/15 text-gold hover:bg-gold/25'
+              )}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="2" />
-                <path d="M12 8v4l2.5 2.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-              Sync
+              {exactlySynced ? (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M4 12.5l5 5L20 6.5"
+                      stroke="currentColor"
+                      strokeWidth="2.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  In sync
+                </>
+              ) : (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="2" />
+                    <path d="M12 8v4l2.5 2.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                  Sync
+                </>
+              )}
             </button>
             <div className="flex h-8 items-center gap-1 rounded-full border border-white/15 bg-black/60 px-1 backdrop-blur">
               <button
