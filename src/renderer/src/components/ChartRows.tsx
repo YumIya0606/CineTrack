@@ -56,15 +56,19 @@ function ChartRow({ def }: { def: ChartDef }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="mb-9"
+      className="mb-7"
     >
       <div className="mb-3.5 flex items-baseline gap-3">
         <h2 className="font-display text-lg font-bold text-ink">{def.title}</h2>
         <p className="text-xs text-ink-dim">{def.hint}</p>
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(0,1fr))] gap-3 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
+      {/* A fixed-height horizontal strip rather than a grid: suggestions should
+          stay a glance, not compete with the filterable results below. Fixed
+          card widths also keep density constant instead of stretching posters
+          across a wide window. */}
+      <div className="row-scroll flex gap-3 overflow-x-auto pb-3">
         {items.map((item, i) => (
-          <PosterCard key={item.tmdbId} item={item} index={i} className="w-full" />
+          <PosterCard key={item.tmdbId} item={item} index={i} className="w-[124px] shrink-0" />
         ))}
       </div>
     </motion.section>
