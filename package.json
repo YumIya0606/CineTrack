@@ -25,8 +25,8 @@
     "db:generate": "drizzle-kit generate",
     "icon": "node scripts/build-icons.mjs",
     "screenshot": "electron-vite build && electron scripts/screenshot.mjs",
-    "package": "electron-vite build && electron-builder --win && node scripts/apply-icon.mjs",
-    "package:dir": "electron-vite build && electron-builder --win --dir && node scripts/apply-icon.mjs"
+    "package": "electron-vite build && electron-builder --win",
+    "package:dir": "electron-vite build && electron-builder --win --dir"
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.18.2",

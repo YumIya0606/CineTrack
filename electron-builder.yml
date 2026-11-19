@@ -6,6 +6,10 @@ directories:
   output: release
   buildResources: resources
 
+# Brand the executable before the NSIS target packs it. Applying the icon
+# afterwards only patched win-unpacked, leaving the installer unbranded.
+afterPack: scripts/after-pack.mjs
+
 files:
   - out/**/*
   - "!out/renderer/**/*.{map}"
