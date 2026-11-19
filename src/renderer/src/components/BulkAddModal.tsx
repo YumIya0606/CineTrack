@@ -457,9 +457,11 @@ const pasteUnmatched = useMemo(
                     <span className="text-[11px] text-ink-dim">
                       {lines.length === 0
                         ? 'Titles resolve against your catalog and TMDB'
-                        : pasteNeedsAttention > 0
+                        : pasteUnmatched > 0
                           ? `${pasteUnmatched} of ${lines.length} ${lines.length === 1 ? 'line' : 'lines'} couldn't be matched — fix or skip ${pasteUnmatched === 1 ? 'it' : 'them'}`
-                          : `All ${lines.length} ${lines.length === 1 ? 'line' : 'lines'} matched — uncheck any wrong guess`}
+                          : pasteNeedsAttention > 0
+                            ? `Matching ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}…`
+                            : `All ${lines.length} ${lines.length === 1 ? 'line' : 'lines'} matched — uncheck any wrong guess`}
                     </span>
                   </div>
 

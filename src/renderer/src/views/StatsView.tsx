@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
   Tooltip,
+  Legend,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -80,7 +81,7 @@ export default function StatsView() {
           <div>
             <h3 className="font-display text-lg font-bold text-ink">No statistics yet</h3>
             <p className="mx-auto mt-1.5 max-w-xs text-sm text-ink-soft">
-              Add {pluralize(0, 'title')} to your library and your watching patterns will appear here.
+              Add a few titles to your library and your watching patterns will appear here.
             </p>
           </div>
         </div>
@@ -131,7 +132,7 @@ export default function StatsView() {
           <StatCards stats={stats} />
         </div>
 
-        <ChartCard title="Watch time by genre" className="md:col-span-2 xl:col-span-2">
+        <ChartCard title="Watch time by genre (minutes)" className="md:col-span-2 xl:col-span-2">
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={stats.byGenre} margin={{ top: 8, right: 8, left: -18, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
@@ -158,28 +159,45 @@ export default function StatsView() {
         </ChartCard>
 
         <ChartCard title="Movies vs series">
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie
-                data={[
-                  { name: 'Movies', value: stats.byKind.movie },
-                  { name: 'Series', value: stats.byKind.series }
-                ]}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={58}
-                outerRadius={92}
-                paddingAngle={3}
-                stroke="none"
-              >
-                <Cell fill={PALETTE.gold} />
-                <Cell fill={PALETTE.azure} />
-              </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-            </PieChart>
-          </ResponsiveContainer>
+          <div className="relative">
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: 'Movies', value: stats.byKind.movie },
+                    { name: 'Series', value: stats.byKind.series }
+                  ]}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={58}
+                  outerRadius={92}
+                  paddingAngle={3}
+                  stroke="none"
+                >
+                  <Cell fill={PALETTE.gold} />
+                  <Cell fill={PALETTE.azure} />
+                </Pie>
+                <Tooltip contentStyle={tooltipStyle} />
+                <Legend
+                  verticalAlign="bottom"
+                  height={26}
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: 11, color: PALETTE.ink }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            {/* The ring alone never said which colour was which, and the count
+                was only reachable by hovering. Both live in the middle now. */}
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-7">
+              <span className="font-display text-2xl font-bold text-ink">
+                {stats.byKind.movie + stats.byKind.series}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider text-ink-dim">titles</span>
+            </div>
+          </div>
         </ChartCard>
 
         <ChartCard title="Rating distribution">

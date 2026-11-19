@@ -1,5 +1,5 @@
 import type { StatusDef, WatchStatus } from '@shared/types'
-import { statusColorClass, statusColorDot } from '@shared/status'
+import { fallbackLabel, statusColorClass, statusColorDot } from '@shared/status'
 import { useStatuses } from '../store'
 import { cn } from '../lib/utils'
 
@@ -25,7 +25,7 @@ export default function StatusPill({
   className
 }: StatusPillProps) {
   const def = useStatuses(s => s.byKey[status]) as StatusDef | undefined
-  const label = def?.label ?? status
+  const label = def?.label ?? fallbackLabel(status)
   const colorClass = statusColorClass(def?.color)
   const dotClass = statusColorDot(def?.color)
 

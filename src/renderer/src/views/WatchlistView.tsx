@@ -43,12 +43,26 @@ export default function WatchlistView() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="mb-6"
+        className="mb-6 flex flex-wrap items-end justify-between gap-4"
       >
-        <h1 className="font-display text-3xl font-bold text-ink">Watchlist</h1>
-        <p className="mt-1.5 text-sm text-ink-soft">
-          {planned.length} {planned.length === 1 ? 'title' : 'titles'} queued up to watch
-        </p>
+        <div>
+          <h1 className="font-display text-3xl font-bold text-ink">Watchlist</h1>
+          <p className="mt-1.5 text-sm text-ink-soft">
+            {planned.length} {planned.length === 1 ? 'title' : 'titles'} queued up to watch
+          </p>
+        </div>
+        {planned.length > 0 && (
+          <button
+            onClick={() => setCommandOpen(true)}
+            className="flex items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-2 text-sm font-semibold text-gold transition hover:bg-gold/20"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+              <path d="M16.5 16.5L21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            Find titles
+          </button>
+        )}
       </motion.div>
 
       {planned.length > 0 ? (
@@ -105,6 +119,7 @@ export default function WatchlistView() {
           </div>
           <div className="flex-1" />
           <button
+            title={planned[0] ? `Mark “${planned[0].title}” as watched` : undefined}
             onClick={async () => {
               const first = planned[0]
               if (first) await updateItem(first.libraryId, { status: 'completed' })
@@ -113,7 +128,7 @@ export default function WatchlistView() {
               'rounded-lg border border-gold bg-gold/15 px-3 py-1.5 text-xs font-semibold text-gold transition hover:bg-gold/25'
             )}
           >
-            Mark first as watched
+            Mark next as watched
           </button>
         </div>
       )}

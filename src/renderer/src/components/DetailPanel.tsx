@@ -11,6 +11,7 @@ import TrailerModal from './TrailerModal'
 import WatchModal from './WatchModal'
 import ListPicker from './ListPicker'
 import { PersonModal, CollectionModal } from './BrowseModals'
+import ConfirmDialog from './ConfirmDialog'
 import { api } from '../lib/api'
 
 function isLibraryItem(item: unknown): item is {
@@ -78,6 +79,7 @@ export default function DetailPanel() {
   // Drill-downs opened from the detail panel: a person, or the franchise the
   // title belongs to.
   const [personId, setPersonId] = useState<number | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const [collectionId, setCollectionId] = useState<number | null>(null)
   const loadCollections = useCollections(s => s.loadCollections)
   const bumpItems = useCollections(s => s.bumpItems)
@@ -249,6 +251,9 @@ export default function DetailPanel() {
 
   const handleSaveRating = async (r: number | null) => {
     setRating(r)
+    // Clearing stars on a title that was never shelved is a no-op — it used to
+    // add the title to the library as Completed just to store a null rating.
+    if (r === null && !libraryId) return
     if (libraryId) {
       await updateItem(libraryId, { rating: r })
       return
@@ -357,10 +362,12 @@ const confirmDate = async () => {
     episode: number | null
   ) => {
     // The player is reachable from a live title that isn't shelved yet. Shelf
-    // it first (as completed) so the view actually lands somewhere.
+    // it first so the viewing lands somewhere. An episode means the series is
+    // being watched, not finished — adding it as Completed used to swallow the
+    // whole show the moment you played episode one.
     let lid = libraryId
     if (!lid) {
-      await addItem(item as CatalogItem, 'completed')
+      await addItem(item as CatalogItem, season !== null ? 'watching' : 'completed')
       const tmdb = (item as CatalogItem).tmdbId
       const entry = useData.getState().library.find(l => tmdb != null && l.tmdbId === tmdb)
       lid = entry?.libraryId ?? undefined
@@ -774,11 +781,13 @@ const confirmDate = async () => {
                   className="mt-2 flex items-center gap-0.5"
                   onMouseLeave={() => setHoverRating(null)}
                 >
+                  {/* Compare against the saved rating, not the hovered one: clicking
+                      the same star used to clear it because displayRating was already n. */}
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
                     <button
                       key={n}
                       onMouseEnter={() => setHoverRating(n)}
-                      onClick={() => handleSaveRating(displayRating === n ? null : n)}
+                      onClick={() => handleSaveRating(rating === n ? null : n)}
                       className="p-0.5 transition hover:scale-110"
                       aria-label={`${n}/10`}
                     >
@@ -873,7 +882,7 @@ const confirmDate = async () => {
               {libraryId ? (
                 <div className="mt-6 flex justify-end">
                   <button
-                    onClick={handleRemove}
+                    onClick={() => setConfirmRemove(true)}
                     className="rounded-lg border border-crimson/40 bg-crimson/10 px-3 py-1.5 text-xs font-medium text-crimson-soft transition hover:bg-crimson/20"
                   >
                     Remove from library
@@ -967,6 +976,18 @@ const confirmDate = async () => {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmRemove}
+        title={`Remove “${item?.title ?? 'this title'}”?`}
+        body="Your rating, notes, episode progress, and watch history for this title will be deleted. The catalog entry stays available in search."
+        confirmLabel="Remove"
+        onClose={() => setConfirmRemove(false)}
+        onConfirm={() => {
+          setConfirmRemove(false)
+          handleRemove()
+        }}
+      />
     </>
   )
 }

@@ -56,6 +56,30 @@ export const ACCENTS: Accent[] = [
     goldSoft: '#c4b5fd',
     goldDim: '#5b3fa8',
     glow: '167, 139, 250'
+  },
+  {
+    id: 'rose',
+    label: 'Rose',
+    gold: '#f472b6',
+    goldSoft: '#f9a8d4',
+    goldDim: '#9d3f6d',
+    glow: '244, 114, 182'
+  },
+  {
+    id: 'teal',
+    label: 'Teal',
+    gold: '#2dd4bf',
+    goldSoft: '#7de9dd',
+    goldDim: '#157a6e',
+    glow: '45, 212, 191'
+  },
+  {
+    id: 'sky',
+    label: 'Sky',
+    gold: '#38bdf8',
+    goldSoft: '#7dd3fc',
+    goldDim: '#1f6f96',
+    glow: '56, 189, 248'
   }
 ]
 
@@ -80,4 +104,18 @@ export type Density = 'comfortable' | 'compact'
 export function applyDensity(density: Density | null | undefined): void {
   const root = document.documentElement
   root.classList.toggle('density-compact', density === 'compact')
+}
+
+/**
+ * Performance profile. "Balanced" turns the heavy backdrop blurs down and
+ * softens the aurora; "battery" removes the ambient layers entirely. Until
+ * now these labels only affected motion, so the two lighter profiles rendered
+ * exactly like Cinematic.
+ */
+export type QualityLevel = 'cinematic' | 'balanced' | 'battery'
+
+export function applyQuality(quality: QualityLevel | null | undefined): void {
+  const root = document.documentElement
+  root.classList.toggle('quality-balanced', quality === 'balanced')
+  root.classList.toggle('quality-battery', quality === 'battery')
 }

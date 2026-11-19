@@ -22,6 +22,8 @@ export default function TopBar() {
   const setView = useUI(s => s.setView)
   const setCommandOpen = useUI(s => s.setCommandOpen)
   const setSettingsOpen = useUI(s => s.setSettingsOpen)
+  const setShortcutsOpen = useUI(s => s.setShortcutsOpen)
+  const openDetail = useUI(s => s.openDetail)
   const library = useData(s => s.library)
   const loadLibrary = useData(s => s.loadLibrary)
   const loadStats = useData(s => s.loadStats)
@@ -152,10 +154,20 @@ export default function TopBar() {
                       notifications.map(n => (
                         <button
                           key={n.id}
-                          onClick={() => {
+                          onClick={async () => {
                             dismiss(n.id)
-                            if (n.catalogId) setView('library')
                             setBellOpen(false)
+                            // Open the title itself when the notification points
+                            // at one. Sending the user to the Library root and
+                            // making them hunt for it defeated the bell.
+                            if (n.catalogId) {
+                              const item = await api.catalog.get(n.catalogId).catch(() => null)
+                              if (item) {
+                                openDetail(item)
+                                return
+                              }
+                            }
+                            setView('library')
                           }}
                           className="flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2.5 text-left transition hover:bg-surface-2"
                         >
@@ -196,6 +208,13 @@ export default function TopBar() {
             <kbd className="hidden rounded border border-line bg-surface px-1 text-[9.5px] text-ink-dim md:inline">
               Ctrl K
             </kbd>
+          </button>
+          <button
+            onClick={() => setShortcutsOpen(true)}
+            title="Keyboard shortcuts (?)"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[#12141a]/80 text-ink-soft backdrop-blur-xl transition hover:border-gold/50 hover:text-gold"
+          >
+            <span className="font-display text-sm font-bold">?</span>
           </button>
           <button
             onClick={() => setSettingsOpen(true)}

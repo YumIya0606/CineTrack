@@ -8,7 +8,11 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const isDev = !app.isPackaged
 
 export function createWindow(): BrowserWindow {
-  const icon = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
+  // Packaged builds ship the icon through extraResources; the repo path is
+  // only correct while running from source.
+  const icon = nativeImage.createFromPath(
+    app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(__dirname, '../../resources/icon.png')
+  )
 
   const win = new BrowserWindow({
     width: 1440,
@@ -48,6 +52,15 @@ export function createWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  // The app shell never navigates away from its own document. Any attempt —
+  // a stray link, an injected redirect — is cancelled and handed to the OS
+  // browser instead of replacing the UI with a remote page.
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url === win.webContents.getURL()) return
+    event.preventDefault()
+    if (/^https?:/i.test(url)) shell.openExternal(url)
+  })
+
   // Providers also weaponize top-level navigation: some play buttons call
   // location.href = adUrl rather than window.open. Guard the main frame the
   // same way, but only for navigations that leave a streaming embed.
@@ -57,7 +70,7 @@ export function createWindow(): BrowserWindow {
     }
   })
 
-// The X button hides to a tray-like "closed" state instead of quitting.
+  // The X button hides to a tray-like "closed" state instead of quitting.
   // `isQuitting` is flipped in before-quit so a real quit tears the window
   // down; without it close is *always* prevented, window-all-closed never
   // fires, and app.quit() is unreachable — the app becomes unquittable.

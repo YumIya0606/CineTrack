@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { api } from '../lib/api'
 import { cn } from '../lib/utils'
@@ -29,11 +29,22 @@ export default function SeasonGrid({
   const [season, setSeason] = useState(1)
   const [data, setData] = useState<SeasonInfo | null>(null)
   const [loading, setLoading] = useState(false)
+  const initializedFor = useRef<number | null>(null)
 
   // The grid stays mounted while the detail panel swaps between series, so the
   // chosen season can outlive the previous show's option list. Re-clamp it.
-  const seasonCount = Math.max(1, seasonsTotal ?? 1)
+  const highestLogged = loggedEpisodes.reduce((max, e) => Math.max(max, e.season), 0)
+  const seasonCount = Math.max(1, seasonsTotal ?? 1, highestLogged)
   const safeSeason = Math.min(season, seasonCount)
+
+  // Open on the season the user is actually watching, not always Season 1.
+  // Without this, a show at S4E2 greeted you with an empty Season 1 grid.
+  useEffect(() => {
+    if (tmdbId === null || initializedFor.current === tmdbId) return
+    if (!loggedEpisodes.length) return
+    initializedFor.current = tmdbId
+    setSeason(Math.min(seasonCount, Math.max(1, highestLogged)))
+  }, [tmdbId, loggedEpisodes.length, highestLogged, seasonCount])
 
   useEffect(() => {
     if (!tmdbId) return
@@ -110,7 +121,7 @@ export default function SeasonGrid({
         </div>
       </div>
 
-      {nextUp && (
+      {nextUp && libraryId !== undefined && (
         <button
           onClick={() => onLogEpisode(nextUp.seasonNumber, nextUp.episodeNumber)}
           className="mt-3 flex w-full items-center gap-3 rounded-xl border border-gold/30 bg-gold/[0.06] px-3 py-2.5 text-left transition hover:bg-gold/10"
@@ -156,8 +167,9 @@ export default function SeasonGrid({
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.25, delay: Math.min(i * 0.012, 0.3) }}
                 onClick={() => onLogEpisode(ep.seasonNumber, ep.episodeNumber)}
+                disabled={libraryId === undefined}
                 className={cn(
-                  'group flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition',
+                  'group flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-55',
                   watched
                     ? 'border-emerald/20 bg-emerald/[0.05]'
                     : 'border-line bg-surface/60 hover:border-gold/40'

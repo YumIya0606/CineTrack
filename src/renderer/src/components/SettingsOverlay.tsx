@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useUI, useData } from '../store'
 import { api } from '../lib/api'
 import { cn } from '../lib/utils'
-import { ACCENTS, applyAccent, applyDensity } from '../lib/theme'
+import { ACCENTS, applyAccent, applyDensity, applyQuality } from '../lib/theme'
 import type { Density } from '../lib/theme'
 import StatusPaletteManager from './StatusPaletteManager'
 import { SUB_LANGUAGES, DEFAULT_SUB_LANGUAGE } from '../lib/languages'
@@ -125,7 +125,11 @@ api.settings.get<string>('subtitles.language').then(l => {
     setReduceMotion(quality === 'battery')
     applyAccent(accent)
     applyDensity(density)
+    applyQuality(quality)
     setTmdb(await api.tmdb.status())
+    // Live surfaces cache their first response. Let Home and Discover know the
+    // connection state changed instead of waiting for a restart.
+    window.dispatchEvent(new Event('cinetrack:tmdb-changed'))
     setSaved(true)
     setTimeout(() => setSaved(false), 1800)
   }
@@ -369,6 +373,10 @@ api.settings.get<string>('subtitles.language').then(l => {
                             onClick={() => {
                               setAccent(a.id)
                               applyAccent(a.id)
+                              // Appearance is instant, so persist it instantly
+                              // too — closing without Save used to keep the
+                              // recolour for this session only.
+                              api.settings.set('app.accent', a.id).catch(() => undefined)
                             }}
                             className={cn(
                               'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition',
@@ -433,6 +441,7 @@ api.settings.get<string>('subtitles.language').then(l => {
                             onClick={() => {
                               setDensity(p.v)
                               applyDensity(p.v)
+                              api.settings.set('app.density', p.v).catch(() => undefined)
                             }}
                             className={cn(
                               'flex flex-col gap-1.5 rounded-xl border p-3 text-left transition',
@@ -471,7 +480,12 @@ api.settings.get<string>('subtitles.language').then(l => {
                         ).map(p => (
                           <button
                             key={p.v}
-                            onClick={() => setQuality(p.v)}
+                            onClick={() => {
+                              setQuality(p.v)
+                              applyQuality(p.v)
+                              setReduceMotion(p.v === 'battery')
+                              api.settings.set('app.quality', p.v).catch(() => undefined)
+                            }}
                             className={cn(
                               'flex flex-col gap-1.5 rounded-xl border p-3 text-left transition',
                               quality === p.v
@@ -698,15 +712,39 @@ api.settings.get<string>('subtitles.language').then(l => {
                         <button
                           onClick={async () => {
                             const next = !autoOnExit
+                            // Turning this on without a stored passphrase used
+                            // to succeed silently and then skip every on-exit
+                            // backup. Write one snapshot first, which also
+                            // stores the OS-encrypted passphrase.
+                            if (next) {
+                              if (!autoFolder) {
+                                setAutoMsg('Choose a backup folder first.')
+                                return
+                              }
+                              if (backupPass.length < 4) {
+                                setAutoMsg('Enter a passphrase of at least 4 characters first.')
+                                return
+                              }
+                              setBusy(true)
+                              try {
+                                const res = await api.backup.auto(backupPass, autoFolder)
+                                const s = await api.backup.status()
+                                setLastAuto(s.lastAuto)
+                                setAutoMsg(
+                                  `Backups on. First snapshot is ${(res.size / 1024 / 1024).toFixed(1)} MB — one will be written every time you quit.`
+                                )
+                              } catch (e) {
+                                setAutoMsg((e as Error).message)
+                                return
+                              } finally {
+                                setBusy(false)
+                              }
+                            }
                             setAutoOnExit(next)
                             await api.backup.setOnExit(next)
-                            setAutoMsg(
-                              next
-                                ? 'A backup will be written to the folder every time you quit.'
-                                : null
-                            )
+                            if (!next) setAutoMsg(null)
                           }}
-                          disabled={!autoFolder}
+                          disabled={!autoFolder || (!autoOnExit && backupPass.length < 4)}
                           className={cn(
                             'flex-1 rounded-lg border px-3.5 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40',
                             autoOnExit

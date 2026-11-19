@@ -14,7 +14,7 @@
 // which makes a "visual audit" meaningless.
 
 import { app, BrowserWindow } from 'electron'
-import { writeFileSync, mkdirSync, existsSync, copyFileSync } from 'fs'
+import { writeFileSync, mkdirSync, existsSync, copyFileSync, rmSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -26,8 +26,13 @@ if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true })
 const WIDTH = Number(process.env.SHOT_W || 1600)
 const HEIGHT = Number(process.env.SHOT_H || 1000)
 
-// Must happen before the app's main module reads any path.
-app.setPath('userData', join(ROOT, '.screenshot-profile'))
+// Must happen before the app's main module reads any path. The profile is
+// throwaway, but it used to survive between runs: every capture seeded another
+// copy of the library, so "12 titles" drifted to 30, then 60, and the stats
+// screenshots quietly stopped matching the seed.
+const PROFILE = join(ROOT, '.screenshot-profile')
+rmSync(PROFILE, { recursive: true, force: true })
+app.setPath('userData', PROFILE)
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 

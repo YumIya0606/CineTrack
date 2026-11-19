@@ -4,6 +4,7 @@ import { useCollections, useUI } from '../store'
 import { api } from '../lib/api'
 import { cn } from '../lib/utils'
 import PosterCard from '../components/PosterCard'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { catalogKey } from '@shared/utils'
 import type { CatalogItem, Collection } from '@shared/types'
 
@@ -23,6 +24,7 @@ export default function ListsView() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Collection | null>(null)
 
   useEffect(() => {
     loadCollections()
@@ -172,10 +174,7 @@ export default function ListsView() {
               collection={c}
               active={c.id === activeId}
               onClick={() => setActiveId(c.id)}
-              onDelete={async () => {
-                await deleteCollection(c.id)
-                if (activeId === c.id) setActiveId(null)
-              }}
+              onDelete={() => setDeleteTarget(c)}
             />
           ))}
         </div>
@@ -227,6 +226,20 @@ export default function ListsView() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={`Delete “${deleteTarget?.name ?? ''}”?`}
+        body="The titles stay in your library — only the shelf and its grouping are removed. This cannot be undone."
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          const id = deleteTarget.id
+          setDeleteTarget(null)
+          await deleteCollection(id)
+          if (activeId === id) setActiveId(null)
+        }}
+      />
     </div>
   )
 }

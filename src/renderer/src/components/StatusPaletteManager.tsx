@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { useStatuses } from '../store'
 import { cn } from '../lib/utils'
 import { statusColorDot } from '@shared/status'
+import ConfirmDialog from './ConfirmDialog'
 import type { StatusDef } from '@shared/types'
 
 const COLORS: { id: string; hex: string; label: string }[] = [
@@ -29,6 +30,7 @@ export default function StatusPaletteManager() {
   const [newLabel, setNewLabel] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<StatusDef | null>(null)
 
   const handleCreate = async () => {
     const label = newLabel.trim()
@@ -120,10 +122,22 @@ export default function StatusPaletteManager() {
             onToggleDerivable={v => updateStatus(s.id, { derivable: v })}
             onRename={label => updateStatus(s.id, { label })}
             onColor={color => updateStatus(s.id, { color })}
-            onDelete={() => handleDelete(s.id, s.label)}
+            onDelete={() => setDeleteTarget(s)}
           />
         ))}
       </div>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={`Delete “${deleteTarget?.label ?? ''}”?`}
+        body="Titles using this status are moved to Planned. This cannot be undone."
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          const target = deleteTarget
+          setDeleteTarget(null)
+          if (target) handleDelete(target.id, target.label)
+        }}
+      />
     </div>
   )
 }

@@ -23,6 +23,7 @@ interface UIState {
   bulkOpen: boolean
   settingsOpen: boolean
   statsOpen: boolean
+  shortcutsOpen: boolean
   loading: boolean
   reduceMotion: boolean
 
@@ -33,6 +34,7 @@ interface UIState {
   setBulkOpen: (open: boolean) => void
   setSettingsOpen: (open: boolean) => void
   setStatsOpen: (open: boolean) => void
+  setShortcutsOpen: (open: boolean) => void
   setLoading: (on: boolean) => void
   setReduceMotion: (on: boolean) => void
 }
@@ -63,6 +65,8 @@ interface DataState {
       >
     >
   ) => Promise<void>
+  /** Re-status many rows with one library/stats reload instead of N of each. */
+  bulkUpdateStatus: (libraryIds: number[], status: WatchStatus) => Promise<void>
   removeItem: (libraryId: number) => Promise<void>
   logEpisode: (libraryId: number, season: number, episode: number) => Promise<void>
 }
@@ -111,6 +115,7 @@ export const useUI = create<UIState>(set => ({
   bulkOpen: false,
   settingsOpen: false,
   statsOpen: false,
+  shortcutsOpen: false,
   loading: true,
   reduceMotion: false,
 
@@ -121,6 +126,7 @@ export const useUI = create<UIState>(set => ({
   setBulkOpen: open => set({ bulkOpen: open }),
   setSettingsOpen: open => set({ settingsOpen: open }),
   setStatsOpen: open => set({ statsOpen: open }),
+  setShortcutsOpen: open => set({ shortcutsOpen: open }),
   setLoading: on => set({ loading: on }),
   setReduceMotion: on => set({ reduceMotion: on })
 }))
@@ -212,6 +218,22 @@ export const useData = create<DataState>((set, get) => ({
 
   updateItem: async (libraryId, patch) => {
     await api.library.update(libraryId, patch)
+    await get().loadLibrary()
+    await get().loadStats()
+  },
+
+  bulkUpdateStatus: async (libraryIds, status) => {
+    // Completing a series triggers TMDB enrichment per row. Firing all of
+    // them at once on a large selection would burst the API and make the UI
+    // wait on dozens of parallel requests, so run four at a time.
+    const queue = [...libraryIds]
+    const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
+      while (queue.length) {
+        const id = queue.shift()!
+        await api.library.update(id, { status })
+      }
+    })
+    await Promise.all(workers)
     await get().loadLibrary()
     await get().loadStats()
   },

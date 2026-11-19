@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { api } from '../lib/api'
 import PosterCard from './PosterCard'
+import { Skeleton } from './Skeleton'
 import type { CatalogItem } from '@shared/types'
 
 /**
@@ -49,9 +50,25 @@ function ChartRow({ def }: { def: ChartDef }) {
     }
   }, [def.id])
 
-  if (!items || items.length === 0) return null
+  if (items === null) {
+    // Keep the row's footprint while it loads instead of letting the page
+    // jump when three chart strips pop in at different times.
+    return (
+      <section className="mb-7">
+        <div className="mb-3.5 flex items-baseline gap-3">
+          <h2 className="font-display text-lg font-bold text-ink">{def.title}</h2>
+          <p className="text-xs text-ink-dim">{def.hint}</p>
+        </div>
+        <div className="flex gap-3 overflow-hidden pb-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-[186px] w-[124px] shrink-0" />
+          ))}
+        </div>
+      </section>
+    )
+  }
 
-  if (!items || items.length === 0) return null
+  if (items.length === 0) return null
 
   return (
     <motion.section

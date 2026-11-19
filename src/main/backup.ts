@@ -172,6 +172,13 @@ export async function importBackup(passphrase: string): Promise<{ size: number }
   const dbPath = getDbPath()
   const safety = `${dbPath}.pre-restore-${Date.now()}`
   try {
+    // Flush the WAL first, otherwise the "safety" copy can be missing the
+    // most recent adds even though the live app shows them.
+    getRaw().pragma('wal_checkpoint(TRUNCATE)')
+  } catch {
+    /* closed handle is handled below */
+  }
+  try {
     copyFileSync(dbPath, safety)
   } catch {
     /* no safety copy is still better than a guaranteed wipe — carry on */
@@ -185,6 +192,16 @@ export async function importBackup(passphrase: string): Promise<{ size: number }
     getRaw().close()
   } catch (err) {
     throw new Error(`Could not close the library for restore: ${(err as Error).message}`)
+  }
+
+  // A stale -wal/-shm from the previous database would be replayed against
+  // the restored file on reopen. Closing usually removes them; be explicit.
+  for (const suffix of ['-wal', '-shm']) {
+    try {
+      if (existsSync(dbPath + suffix)) unlinkSync(dbPath + suffix)
+    } catch {
+      /* the next write/open still has the safety copy */
+    }
   }
 
   try {

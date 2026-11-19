@@ -127,7 +127,7 @@ export default function SubtitleOverlay(props: SubtitleOverlayProps) {
     persistOffset(offset + (position - activeCue.start))
   }, [activeCue, position, offset, persistOffset])
 
-const search = useCallback(async () => {
+  const search = useCallback(async () => {
     setPickerOpen(true)
     setLoading(true)
     setError(null)
@@ -168,7 +168,7 @@ const search = useCallback(async () => {
     } finally {
       setLoading(false)
     }
-  }, [imdbId, season, episode, language])
+  }, [imdbId, season, episode, language, tmdbId, kind])
 
   const load = useCallback(
     async (candidate: SubtitleCandidate) => {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useUI, useData, useStatuses } from '../store'
 import { cn } from '../lib/utils'
@@ -37,6 +37,12 @@ export default function LibraryView() {
     [statuses]
   )
 
+  // Deleting the status that is currently selected would leave a filter chip
+  // that no longer exists and a permanently empty grid.
+  useEffect(() => {
+    if (filter !== 'all' && !statuses.some(s => s.key === filter)) setFilter('all')
+  }, [filter, statuses])
+
   // Library excludes the planned list — that lives in Watchlist.
   const items = useMemo(() => {
     let out = library.filter(l => l.status !== 'planned')
@@ -68,27 +74,40 @@ export default function LibraryView() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="mb-6"
+        className="mb-6 flex flex-wrap items-end justify-between gap-4"
       >
-        <h1 className="font-display text-3xl font-bold text-ink">Library</h1>
-        <p className="mt-1.5 text-sm text-ink-soft">
-          {items.length} {items.length === 1 ? 'title' : 'titles'} you have tracked
-        </p>
+        <div>
+          <h1 className="font-display text-3xl font-bold text-ink">Library</h1>
+          <p className="mt-1.5 text-sm text-ink-soft">
+            {items.length} {items.length === 1 ? 'title' : 'titles'} you have tracked
+          </p>
+        </div>
+        <button
+          onClick={() => setCommandOpen(true)}
+          className="flex items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-2 text-sm font-semibold text-gold transition hover:bg-gold/20"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+            <path d="M16.5 16.5L21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          Add titles
+        </button>
       </motion.div>
 
       {/* Toolbar */}
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <button
           onClick={() => setBulkOpen(true)}
+          title="Import a block of watched titles in one go (B)"
           className="flex items-center gap-2 rounded-full border border-gold/40 bg-gold/10 px-3.5 py-2 text-xs font-semibold text-gold transition hover:bg-gold/20"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
             <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
           </svg>
-          Add many
+          Bulk add
         </button>
 
-        <div className="flex items-center gap-1.5 rounded-full border border-line bg-surface/60 p-1">
+        <div className="flex max-w-full flex-wrap items-center gap-1.5 rounded-full border border-line bg-surface/60 p-1">
           {FILTERS.map(f => (
             <button
               key={f.id}

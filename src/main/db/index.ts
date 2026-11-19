@@ -35,9 +35,16 @@ export function initDatabase(): void {
 
   db = drizzle(raw, { schema })
 
+  // In a bundled build __dirname is out/main; in Vitest it is src/main/db.
+  // The single ../../ path only worked for the bundled layout, so every test
+  // boot logged a scary (but caught) "Can't find meta/_journal.json" error
+  // and fell back to the raw schema bootstrap.
+  const devMigrations = [join(__dirname, '../../drizzle'), join(__dirname, '../../../drizzle')].find(
+    p => existsSync(join(p, 'meta', '_journal.json'))
+  )
   const migrationsFolder = app.isPackaged
     ? join(process.resourcesPath, 'drizzle')
-    : join(__dirname, '../../drizzle')
+    : (devMigrations ?? join(__dirname, '../../drizzle'))
 
   try {
     migrate(db, { migrationsFolder })

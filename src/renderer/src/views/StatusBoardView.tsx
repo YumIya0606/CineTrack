@@ -7,6 +7,7 @@ import { formatYear } from '@shared/utils'
 import { statusColorDot, progressOf } from '@shared/status'
 import StatusPill, { formatShortMinutes } from '../components/StatusPill'
 import ProceduralPoster from '../components/ProceduralPoster'
+import { BoardRowsSkeleton } from '../components/Skeleton'
 import type {
   BoardFilters,
   BoardResult,
@@ -45,6 +46,7 @@ export default function StatusBoardView() {
   const openDetail = useUI(s => s.openDetail)
   const statuses = useStatuses(s => s.statuses)
   const library = useData(s => s.library)
+  const bulkUpdateStatus = useData(s => s.bulkUpdateStatus)
 
   const [data, setData] = useState<BoardResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -62,6 +64,16 @@ export default function StatusBoardView() {
   const [inProgressOnly, setInProgressOnly] = useState(false)
   const [unratedOnly, setUnratedOnly] = useState(false)
   const [query, setQuery] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+
+  // A status can be deleted in Settings while this view is mounted. Drop the
+  // dead key instead of querying for a status that no longer exists.
+  useEffect(() => {
+    if (!selStatuses.length) return
+    const valid = selStatuses.filter(k => statuses.some(s => s.key === k))
+    if (valid.length !== selStatuses.length) setSelStatuses(valid)
+  }, [statuses, selStatuses])
 
   const filters: BoardFilters = useMemo(
     () => ({
@@ -96,7 +108,7 @@ export default function StatusBoardView() {
     return () => {
       cancelled = true
     }
-  }, [filters, sort])
+  }, [filters, sort, library])
 
   const activeFilterCount =
     (selStatuses.length ? 1 : 0) +
@@ -117,7 +129,41 @@ export default function StatusBoardView() {
     setInProgressOnly(false)
     setUnratedOnly(false)
     setQuery('')
+    setSelectedIds(new Set())
   }
+
+  // Selection is scoped to what is currently visible: changing a filter
+  // shouldn't leave invisible titles queued for a bulk edit.
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [filters, sort])
+
+  const toggleSelected = (libraryId: number) =>
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(libraryId)) next.delete(libraryId)
+      else next.add(libraryId)
+      return next
+    })
+
+  const toggleSelectAll = () => {
+    const ids = [...new Set((data?.rows ?? []).map(r => r.libraryId))]
+    setSelectedIds(prev => (prev.size === ids.length ? new Set() : new Set(ids)))
+  }
+
+  const applyBulkStatus = async (status: WatchStatus) => {
+    if (!selectedIds.size || bulkBusy) return
+    setBulkBusy(true)
+    try {
+      await bulkUpdateStatus([...selectedIds], status)
+      setSelectedIds(new Set())
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const visibleIds = [...new Set((data?.rows ?? []).map(r => r.libraryId))]
+  const allVisibleSelected = visibleIds.length > 0 && selectedIds.size === visibleIds.length
 
   const toggleStatus = (key: string) =>
     setSelStatuses(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]))
@@ -155,6 +201,20 @@ export default function StatusBoardView() {
     return entries
   }, [data, group, statuses])
 
+  // Show every status in the palette, not just ones with rows. A three-status
+  // library used to leave two of the five summary slots blank, and a zero-count
+  // card is still a useful one-click filter.
+  const summaryCards = useMemo(
+    () =>
+      statuses.map(def => {
+        const found = data?.summary.find(s => s.key === def.key)
+        return (
+          found ?? { key: def.key, label: def.label, color: def.color, count: 0, minutes: 0 }
+        )
+      }),
+    [statuses, data]
+  )
+
   const groupLabel = (key: string) => {
     if (group === 'status') {
       return statuses.find(s => s.key === key)?.label ?? key
@@ -191,7 +251,7 @@ export default function StatusBoardView() {
 
       {/* Summary strip — one card per status, clickable to filter */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {(data?.summary ?? []).map(s => {
+        {summaryCards.map(s => {
           const active = selStatuses.includes(s.key)
           const dot = statusColorDot(s.color)
           return (
@@ -268,6 +328,7 @@ export default function StatusBoardView() {
               </option>
             ))}
           </select>
+          <div className="flex-1" />
           <div className="flex items-center gap-1 rounded-full border border-line bg-surface-2 p-1">
             {GROUPS.map(g => (
               <button
@@ -282,8 +343,6 @@ export default function StatusBoardView() {
               </button>
             ))}
           </div>
-
-          <div className="flex-1" />
           {activeFilterCount > 0 && (
             <button
               onClick={clearAll}
@@ -321,17 +380,73 @@ export default function StatusBoardView() {
       </div>
 
       {/* Results meta */}
-      <div className="mb-3 flex items-center justify-between text-[11px] text-ink-dim">
+      <div className="mb-3 flex items-center justify-between gap-4 text-[11px] text-ink-dim">
         <span>
           {data?.total ?? 0} {data?.total === 1 ? 'title' : 'titles'}
           {loading && ' · updating…'}
         </span>
-        {library.length > 0 && data && data.total < library.length && (
-          <span>
-            filtered from {library.length}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {visibleIds.length > 0 && (
+            <button
+              onClick={toggleSelectAll}
+              className="rounded-md border border-line bg-surface px-2 py-1 font-medium text-ink-soft transition hover:border-gold/40 hover:text-gold sm:hidden"
+            >
+              {allVisibleSelected ? 'Clear selection' : 'Select all'}
+            </button>
+          )}
+          {library.length > 0 && data && data.total < library.length && (
+            <span>filtered from {library.length}</span>
+          )}
+        </div>
       </div>
+
+      {/* Bulk action bar — appears only with a selection and stays pinned while
+          the user scrolls a long result set. */}
+      <AnimatePresence>
+        {selectedIds.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.16 }}
+            className="glass-strong sticky top-[76px] z-20 mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-gold/30 px-3.5 py-2.5 shadow-2xl"
+          >
+            <span className="text-xs font-semibold text-gold">
+              {selectedIds.size} selected
+            </span>
+            <span className="text-[11px] text-ink-dim">Set status:</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {statuses.map(st => (
+                <button
+                  key={st.key}
+                  disabled={bulkBusy}
+                  onClick={() => applyBulkStatus(st.key)}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-ink-soft transition hover:border-gold/50 hover:text-gold disabled:opacity-40',
+                    bulkBusy && 'cursor-wait'
+                  )}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full', statusColorDot(st.color))} />
+                  {st.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1" />
+            {bulkBusy && (
+              <span className="flex items-center gap-1.5 text-[11px] text-ink-dim">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-line border-t-gold" />
+                Updating…
+              </span>
+            )}
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="rounded-md px-2 py-1 text-[11px] text-ink-dim transition hover:text-crimson"
+            >
+              Cancel
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Error */}
       {error && (
@@ -345,13 +460,34 @@ export default function StatusBoardView() {
         {/* Column header, so the fixed tracks read as a table rather than
             arbitrary gaps. */}
         {grouped.length > 0 && (
-          <div className="hidden grid-cols-[minmax(0,1fr)_9rem_4rem_auto] items-center gap-4 px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-dim sm:grid">
+          <div className="hidden grid-cols-[18px_minmax(0,1fr)_9rem_4.5rem_auto] items-center gap-4 px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-dim sm:grid">
+            <button
+              onClick={toggleSelectAll}
+              aria-label={allVisibleSelected ? 'Deselect all visible titles' : 'Select all visible titles'}
+              className={cn(
+                'flex h-[18px] w-[18px] items-center justify-center rounded border transition',
+                allVisibleSelected
+                  ? 'border-gold/60 bg-gold/20 text-gold'
+                  : 'border-line bg-surface text-transparent hover:border-gold/40'
+              )}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M4 12.5l5 5L20 6.5"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
             <span>Title</span>
             <span className="text-right">Progress</span>
-            <span className="text-right">Watch time</span>
+            <span className="whitespace-nowrap text-right">Watch time</span>
             <span className="w-[7.5rem] text-center">Status</span>
           </div>
         )}
+        {loading && !data && <BoardRowsSkeleton />}
         {grouped.map(g => (
           <section key={g.key}>
             {group !== 'none' && (
@@ -370,7 +506,13 @@ export default function StatusBoardView() {
             )}
             <div className="overflow-hidden rounded-2xl border border-line bg-surface/40">
               {g.rows.map(row => (
-                <BoardRowItem key={row.libraryId} row={row} onOpen={() => openDetail(row)} />
+                <BoardRowItem
+                  key={row.libraryId}
+                  row={row}
+                  selected={selectedIds.has(row.libraryId)}
+                  onToggleSelect={() => toggleSelected(row.libraryId)}
+                  onOpen={() => openDetail(row)}
+                />
               ))}
             </div>
           </section>
@@ -424,7 +566,17 @@ function ToggleChip({
 }
 
 /** One row of the board: poster, title/meta, progress, and an inline status menu. */
-function BoardRowItem({ row, onOpen }: { row: BoardRow; onOpen: () => void }) {
+function BoardRowItem({
+  row,
+  onOpen,
+  selected,
+  onToggleSelect
+}: {
+  row: BoardRow
+  onOpen: () => void
+  selected: boolean
+  onToggleSelect: () => void
+}) {
   const statuses = useStatuses(s => s.statuses)
   const updateItem = useData(s => s.updateItem)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -446,7 +598,32 @@ function BoardRowItem({ row, onOpen }: { row: BoardRow; onOpen: () => void }) {
   }
 
   return (
-    <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-line/60 px-4 py-3 transition last:border-b-0 hover:bg-surface-2/50 sm:grid-cols-[minmax(0,1fr)_9rem_4rem_auto]">
+    <div
+      className={cn(
+        'group grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-4 border-b border-line/60 px-4 py-3 transition last:border-b-0 hover:bg-surface-2/50 sm:grid-cols-[18px_minmax(0,1fr)_9rem_4.5rem_auto]',
+        selected && 'bg-gold/[0.055]'
+      )}
+    >
+      <button
+        onClick={onToggleSelect}
+        aria-label={`${selected ? 'Deselect' : 'Select'} ${row.title}`}
+        className={cn(
+          'flex h-[18px] w-[18px] items-center justify-center rounded border transition',
+          selected
+            ? 'border-gold/60 bg-gold/20 text-gold'
+            : 'border-line bg-surface text-transparent hover:border-gold/40'
+        )}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M4 12.5l5 5L20 6.5"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
       <button onClick={onOpen} className="flex min-w-0 items-center gap-4 text-left">
         <div className="h-[60px] w-11 shrink-0 overflow-hidden rounded-lg">
           {row.posterPath ? (

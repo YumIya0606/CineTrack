@@ -8,6 +8,15 @@ import { startNotificationEngine } from './notifications'
 import { setupAdBlocker } from './adblock'
 import { autoBackupOnQuit } from './backup'
 import { getSetting } from './db/queries'
+import { setupTray, showMainWindow } from './tray'
+
+// A second launch should focus the running window instead of opening a second
+// copy of the app against the same SQLite file.
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0)
+} else {
+  app.on('second-instance', () => showMainWindow())
+}
 
 app.whenReady()
   .then(async () => {
@@ -29,6 +38,7 @@ app.whenReady()
     }
 
     const win = createWindow()
+    setupTray()
 
     if (process.env['ELECTRON_RENDERER_URL']) {
       win.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -39,11 +49,15 @@ app.whenReady()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         const w = createWindow()
+        setupTray()
         if (process.env['ELECTRON_RENDERER_URL']) {
           w.loadURL(process.env['ELECTRON_RENDERER_URL'])
         } else {
           w.loadFile(join(__dirname, '../renderer/index.html'))
         }
+      } else {
+        // The window was hidden by its close button, not destroyed.
+        showMainWindow()
       }
     })
   })

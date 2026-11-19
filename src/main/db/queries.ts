@@ -253,7 +253,11 @@ export function addToLibrary(
   opts: AddOptions = {}
 ): LibraryItem {
   const db = getDb()
-  const now = opts.watchedAt ?? new Date().toISOString()
+  // A bulk import can carry a historical watched date, but the row itself is
+  // still being added *now*. Using watchedAt for addedAt/updatedAt made fresh
+  // imports sort to the bottom of "Recently added" and disappear from Home.
+  const now = new Date().toISOString()
+  const watchedAt = opts.watchedAt ?? now
   const existing = db
     .select()
     .from(library)
@@ -262,19 +266,20 @@ export function addToLibrary(
   const override = opts.statusOverride !== false
 
   if (existing) {
+    const total = opts.episodesTotal ?? existing.episodesTotal ?? null
     db.update(library)
       .set({
         status,
         updatedAt: now,
-        watchedAt: status === 'completed' ? now : existing.watchedAt,
+        watchedAt: status === 'completed' ? watchedAt : existing.watchedAt,
         statusOverride: override,
-        episodesTotal: opts.episodesTotal ?? existing.episodesTotal ?? null,
+        episodesTotal: total,
         seasonsTotal: opts.seasonsTotal ?? existing.seasonsTotal ?? null,
-        // Marking a series complete without episode-by-episode logging means
-        // "I saw it all" — record the full run so progress and watch time
-        // both reflect that. Never clobber a real per-episode count.
-        ...(status === 'completed' && opts.episodesTotal && !existing.episodesWatched
-          ? { episodesWatched: opts.episodesTotal }
+        // Marking a series complete means "I saw it all" — fill the progress
+        // bar to the known total, even if a partial log already existed.
+        // Existing totals matter here: an offline re-add has no fresh count.
+        ...(status === 'completed' && total
+          ? { episodesWatched: Math.max(existing.episodesWatched, total) }
           : {})
       })
       .where(eq(library.id, existing.id))
@@ -299,7 +304,7 @@ export function addToLibrary(
       status,
       addedAt: now,
       updatedAt: now,
-      watchedAt: status === 'completed' ? now : null,
+      watchedAt: status === 'completed' ? watchedAt : null,
       statusOverride: override,
       episodesTotal: total,
       seasonsTotal: opts.seasonsTotal ?? null,
@@ -329,13 +334,29 @@ export function updateLibrary(
 ): void {
   const db = getDb()
   const now = new Date().toISOString()
+  const current = db
+    .select({ library, kind: catalog.kind })
+    .from(library)
+    .innerJoin(catalog, eq(catalog.id, library.catalogId))
+    .where(eq(library.id, libraryId))
+    .get()
+  const total = patch.episodesTotal ?? current?.library.episodesTotal ?? null
+
   db.update(library)
     .set({
       ...patch,
       updatedAt: now,
       // Picking a status by hand pins it against the progress engine.
       ...(manualStatus ? { statusOverride: true } : {}),
-      ...(patch.status === 'completed' && !patch.watchedAt ? { watchedAt: now } : {})
+      ...(patch.status === 'completed' && !patch.watchedAt ? { watchedAt: now } : {}),
+      // Completing a series from the detail panel used to leave progress at
+      // 0/N (or a partial count) because only addToLibrary seeded it.
+      ...(patch.status === 'completed' &&
+      current?.kind === 'series' &&
+      total &&
+      total > 0
+        ? { episodesWatched: Math.max(current.library.episodesWatched, total) }
+        : {})
     })
     .where(eq(library.id, libraryId))
     .run()

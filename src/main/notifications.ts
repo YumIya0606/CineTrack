@@ -8,6 +8,7 @@ import {
   upsertNotification
 } from './db/notifications'
 import { showStatusTmdb, getTmdbConfig } from './tmdb/client'
+import { showMainWindow } from './tray'
 import type { NotificationItem } from '@shared/types'
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000 // hourly
@@ -86,6 +87,9 @@ export function fireDueNotifications(): void {
     })
     notif.on('click', () => {
       dismissNotification(n.id)
+      // Clicking a reminder should bring the app forward; hiding the toast
+      // alone left the user staring at the desktop.
+      showMainWindow()
     })
     notif.show()
     markNotificationFired(n.id)

@@ -1,8 +1,9 @@
-import { memo, type CSSProperties } from 'react'
+import { memo, useEffect, useState, type CSSProperties } from 'react'
 import { motion } from 'framer-motion'
 import { posterUrl, formatYear, formatRuntime } from '@shared/utils'
+import { progressOf, statusColorClass } from '@shared/status'
 import type { CatalogItem, LibraryItem, WatchStatus } from '@shared/types'
-import { useUI, useData, libraryKey } from '../store'
+import { useUI, useData, useStatuses, libraryKey } from '../store'
 import { useTilt } from '../lib/use-tilt'
 import ProceduralPoster from './ProceduralPoster'
 import { cn } from '../lib/utils'
@@ -14,14 +15,6 @@ interface PosterCardProps {
   style?: CSSProperties
   showStatus?: boolean
   index?: number
-}
-
-const STATUS_BADGE: Record<WatchStatus, { label: string; cls: string }> = {
-  watching: { label: 'Watching', cls: 'bg-emerald/15 text-emerald border-emerald/30' },
-  planned: { label: 'Planned', cls: 'bg-azure/15 text-azure border-azure/30' },
-  completed: { label: 'Completed', cls: 'bg-gold/15 text-gold border-gold/30' },
-  dropped: { label: 'Dropped', cls: 'bg-crimson/15 text-crimson-soft border-crimson/30' },
-  rewatching: { label: 'Rewatching', cls: 'bg-gold/15 text-gold border-gold/30' }
 }
 
 function isLibraryItem(item: PosterCardProps['item']): item is LibraryItem {
@@ -49,9 +42,19 @@ function PosterCardImpl({
   // looks un-shelved on its poster. Match against the library by TMDB id so
   // the status badge is correct on every poster, in every view.
   const libraryItem = isLibraryItem(item) ? item : (shelvedItem ?? null)
+  // Badges come from the user's palette, not a hard-coded key map: a custom
+  // or renamed status used to crash the whole grid on `STATUS_BADGE[key].cls`.
+  const statusDef = useStatuses(s => (libraryItem ? s.byKey[libraryItem.status] : undefined))
+  const [posterFailed, setPosterFailed] = useState(false)
   const tilt = useTilt(10)
+  const progress = libraryItem ? progressOf(libraryItem) : null
 
-  const handleClick = () => onClick?.() ?? openDetail(item)
+  useEffect(() => setPosterFailed(false), [item.posterPath])
+
+  // A caller that handles the click (e.g. a person's filmography) must not
+  // also have the detail panel opened underneath it. `onClick?.() ??` ran the
+  // fallback for every void-returning handler.
+  const handleClick = () => (onClick ? onClick() : openDetail(item))
 
   const handleQuickAdd = async (e: React.MouseEvent, status: WatchStatus) => {
     e.stopPropagation()
@@ -78,11 +81,12 @@ function PosterCardImpl({
         style={reduceMotion ? undefined : tilt.style}
         className="relative aspect-[2/3] overflow-hidden rounded-xl border border-line bg-surface-2 shadow-card [transform-style:preserve-3d] transition-shadow duration-300 group-hover:border-gold/40 group-hover:shadow-glow"
       >
-        {item.posterPath ? (
+        {item.posterPath && !posterFailed ? (
           <img
             src={posterUrl(item.posterPath, 'w342') ?? undefined}
             alt={item.title}
             loading="lazy"
+            onError={() => setPosterFailed(true)}
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
@@ -109,6 +113,11 @@ function PosterCardImpl({
               </>
             ) : null}
           </div>
+          {libraryItem?.kind === 'series' && libraryItem.episodesTotal ? (
+            <div className="mt-1 text-[10px] text-white/60">
+              {libraryItem.episodesWatched}/{libraryItem.episodesTotal} episodes
+            </div>
+          ) : null}
           <div className="mt-2 flex gap-1.5">
             {!libraryItem && (
               <>
@@ -129,16 +138,27 @@ function PosterCardImpl({
           </div>
         </div>
 
-        {/* Status badge */}
+        {/* Status badge — coloured and labelled from the live palette. */}
         {showStatus && libraryItem && (
           <div
             style={reduceMotion ? undefined : { transform: 'translateZ(36px)' }}
             className={cn(
               'absolute left-2 top-2 rounded-full border px-2 py-0.5 text-[9.5px] font-semibold backdrop-blur',
-              STATUS_BADGE[libraryItem.status].cls
+              statusColorClass(statusDef?.color)
             )}
           >
-            {STATUS_BADGE[libraryItem.status].label}
+            {statusDef?.label ?? libraryItem.status}
+          </div>
+        )}
+
+        {/* Reading progress stays visible without hovering — the poster rows
+            now answer "how far in am I?" at a glance. */}
+        {libraryItem?.kind === 'series' && progress != null && (
+          <div className="absolute inset-x-0 bottom-0 z-20 h-[3px] bg-black/60">
+            <div
+              className="h-full bg-gradient-to-r from-gold-dim to-gold transition-all duration-500"
+              style={{ width: `${progress * 100}%` }}
+            />
           </div>
         )}
 

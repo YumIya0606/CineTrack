@@ -117,6 +117,14 @@ export default function DiscoverView() {
     runSearch(1, true)
   }, [kind, genreIds, minRating, maxRuntime, fromYear, toYear, sortBy, runSearch])
 
+  // Connecting or clearing a TMDB key in Settings should refresh an empty
+  // Discover grid immediately, not after the next filter tweak.
+  useEffect(() => {
+    const onChange = () => runSearch(1, true)
+    window.addEventListener('cinetrack:tmdb-changed', onChange)
+    return () => window.removeEventListener('cinetrack:tmdb-changed', onChange)
+  }, [runSearch])
+
   const activeFilters =
     genreIds.length + (minRating ? 1 : 0) + (maxRuntime ? 1 : 0) + (fromYear ? 1 : 0) + (toYear ? 1 : 0)
 
@@ -207,6 +215,10 @@ export default function DiscoverView() {
               onClick={() => {
                 setKind(k)
                 setGenreIds([])
+                // Runtime filtering is a movie-only discover parameter; leaving
+                // a "Under 2h" chip active for series looked applied but did
+                // nothing.
+                if (k === 'series') setMaxRuntime(0)
                 // The two lists have disjoint sorts (revenue/primary_release_date
                 // vs first_air_date/name). Carrying one over sent a movie-only
                 // sort to /discover/tv, and the controlled <select> — whose value
@@ -256,17 +268,19 @@ export default function DiscoverView() {
           ))}
         </select>
 
-        <select
-          value={maxRuntime}
-          onChange={e => setMaxRuntime(Number(e.target.value))}
-          className="no-drag cursor-pointer rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-soft focus:border-gold focus:outline-none"
-        >
-          {RUNTIMES.map(r => (
-            <option key={r.value} value={r.value} className="bg-surface text-ink">
-              {r.label}
-            </option>
-          ))}
-        </select>
+        {kind === 'movie' && (
+          <select
+            value={maxRuntime}
+            onChange={e => setMaxRuntime(Number(e.target.value))}
+            className="no-drag cursor-pointer rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-soft focus:border-gold focus:outline-none"
+          >
+            {RUNTIMES.map(r => (
+              <option key={r.value} value={r.value} className="bg-surface text-ink">
+                {r.label}
+              </option>
+            ))}
+          </select>
+        )}
 
         <div className="flex items-center gap-1.5">
           <input
@@ -455,6 +469,19 @@ export default function DiscoverView() {
                     : 'Try loosening the year range or lowering the rating threshold.'}
                 </p>
               </div>
+              {hideInLibrary && page < totalPages && (
+                <button
+                  onClick={() => {
+                    const next = page + 1
+                    setPage(next)
+                    runSearch(next, false)
+                  }}
+                  disabled={loading}
+                  className="rounded-xl border border-gold/40 bg-gold/10 px-5 py-2 text-sm font-semibold text-gold transition hover:bg-gold/20 disabled:opacity-50"
+                >
+                  {loading ? 'Loading…' : 'Load more'}
+                </button>
+              )}
             </>
           )}
         </div>

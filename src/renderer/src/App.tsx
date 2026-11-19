@@ -5,6 +5,7 @@ import CommandPalette from './components/CommandPalette'
 import BulkAddModal from './components/BulkAddModal'
 import DetailPanel from './components/DetailPanel'
 import SettingsOverlay from './components/SettingsOverlay'
+import ShortcutsOverlay from './components/ShortcutsOverlay'
 import LoadingScreen from './components/LoadingScreen'
 import HomeView from './views/HomeView'
 import DiscoverView from './views/DiscoverView'
@@ -15,7 +16,7 @@ import ListsView from './views/ListsView'
 import StatsView from './views/StatsView'
 import { useUI, useData, useStatuses } from './store'
 import { api } from './lib/api'
-import { applyAccent, applyDensity } from './lib/theme'
+import { applyAccent, applyDensity, applyQuality } from './lib/theme'
 import type { Density } from './lib/theme'
 
 export default function App() {
@@ -23,8 +24,11 @@ export default function App() {
   const setCommandOpen = useUI(s => s.setCommandOpen)
   const setBulkOpen = useUI(s => s.setBulkOpen)
   const setSettingsOpen = useUI(s => s.setSettingsOpen)
+  const setShortcutsOpen = useUI(s => s.setShortcutsOpen)
   const setView = useUI(s => s.setView)
   const detailItem = useUI(s => s.detailItem)
+  const commandOpen = useUI(s => s.commandOpen)
+  const shortcutsOpen = useUI(s => s.shortcutsOpen)
   const closeDetail = useUI(s => s.closeDetail)
   const setLoading = useUI(s => s.setLoading)
   const setReduceMotion = useUI(s => s.setReduceMotion)
@@ -55,7 +59,10 @@ export default function App() {
         api.settings.get<string>('app.accent'),
         api.settings.get<Density>('app.density')
       ])
-      if (quality.status === 'fulfilled' && quality.value === 'battery') setReduceMotion(true)
+      if (quality.status === 'fulfilled') {
+        applyQuality(quality.value as 'cinematic' | 'balanced' | 'battery' | null)
+        if (quality.value === 'battery') setReduceMotion(true)
+      }
       // Re-skin before the loading curtain lifts so the accent is correct
       // from the very first paint.
       if (accent.status === 'fulfilled') applyAccent(accent.value)
@@ -86,9 +93,16 @@ export default function App() {
         setCommandOpen(true)
         return
       }
-      if (e.code === 'Slash' && !typing) {
+      // Shift+/ is "?" — let that fall through to the shortcut sheet
+      // instead of opening search on every question mark.
+      if (e.code === 'Slash' && !e.shiftKey && !typing) {
         e.preventDefault()
         setCommandOpen(true)
+        return
+      }
+      if (e.key === '?' && !typing) {
+        e.preventDefault()
+        setShortcutsOpen(true)
         return
       }
       if (e.code === 'KeyB' && !typing) {
@@ -100,6 +114,9 @@ export default function App() {
       // React doesn't fire onBlur on unmount, so the only save trigger is
       // skipped and the typed text is lost.
       if (e.code === 'Escape') {
+        // Overlays handle their own Escape; closing the detail panel behind
+        // them at the same time made one key press dismiss two surfaces.
+        if (commandOpen || shortcutsOpen) return
         if (detailItem && !typing) closeDetail()
         return
       }
@@ -118,17 +135,18 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setCommandOpen, setBulkOpen, setSettingsOpen, setView, detailItem, closeDetail])
+  }, [setCommandOpen, setBulkOpen, setSettingsOpen, setShortcutsOpen, setView, detailItem, closeDetail, commandOpen, shortcutsOpen])
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-canvas">
       {/* Ambient backdrop — slow-drifting aurora blobs + grain keep the flat UI alive */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-[10%] -top-[15%] h-[55vh] w-[55vh] animate-[drift_26s_ease-in-out_infinite] rounded-full bg-gold/[0.07] blur-[90px]" />
-        <div className="absolute -right-[5%] top-[25%] h-[45vh] w-[45vh] animate-[drift_34s_ease-in-out_infinite_reverse] rounded-full bg-azure/[0.06] blur-[100px]" />
-        <div className="absolute bottom-[-20%] left-[30%] h-[50vh] w-[50vh] animate-[drift_30s_ease-in-out_infinite] rounded-full bg-crimson/[0.05] blur-[110px]" />
+        <div className="aurora-blob absolute -left-[10%] -top-[15%] h-[55vh] w-[55vh] animate-[drift_26s_ease-in-out_infinite] rounded-full bg-gold/[0.07] blur-[90px]" />
+        <div className="aurora-blob absolute -right-[5%] top-[25%] h-[45vh] w-[45vh] animate-[drift_34s_ease-in-out_infinite_reverse] rounded-full bg-azure/[0.06] blur-[100px]" />
+        <div className="aurora-blob absolute bottom-[-20%] left-[30%] h-[50vh] w-[50vh] animate-[drift_30s_ease-in-out_infinite] rounded-full bg-crimson/[0.05] blur-[110px]" />
       </div>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_55%,rgba(0,0,0,0.4)_100%)]" />
+      <div className="film-grain pointer-events-none absolute inset-0" />
 
       {/* pb-24 clears the fixed TMDB/Import pills pinned to the bottom, so the
           last row of a long board is never hidden underneath them. */}
@@ -163,6 +181,7 @@ export default function App() {
       <BulkAddModal />
       <DetailPanel />
       <SettingsOverlay />
+      <ShortcutsOverlay />
       <LoadingScreen />
     </div>
   )
