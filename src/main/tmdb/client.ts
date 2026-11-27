@@ -165,31 +165,78 @@ export async function searchTmdb(query: string, kind?: MediaKind): Promise<TmdbM
   const cleaned = normalizeSearchQuery(query)
   if (!cleaned) return []
 
-  const run = async (term: string): Promise<TmdbMediaResult[]> => {
+  const run = async (term: string, scope: MediaKind | 'multi'): Promise<TmdbMediaResult[]> => {
     const params: Record<string, string> = { query: term, include_adult: 'false' }
     const data =
-      kind === 'movie'
+      scope === 'movie'
         ? await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/movie', params)
-        : kind === 'series'
+        : scope === 'series'
           ? await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/tv', params)
           : await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/multi', params)
     return data.results.filter(r => r.media_type !== 'person' && (r.title || r.name))
   }
 
-  let results = await run(cleaned)
-  // One forgiving retry: pasted titles often arrive as "Dune (2021)" or
-  // "Spider-Man: No Way Home —" and TMDB's matcher is strict about trailing
-  // punctuation even though it ignores case. Only fires when the first attempt
-  // genuinely found nothing.
-  if (!results.length) {
-    const simplified = cleaned
-      .replace(/\((?:19|20)\d{2}\)/g, ' ')
+  const tagKind = (rows: TmdbMediaResult[], scope: MediaKind): TmdbMediaResult[] =>
+    rows.map(r => ({ ...r, media_type: scope === 'series' ? 'tv' : 'movie' }))
+
+  /** Title/user variants worth one extra request. */
+  const variants = (term: string): string[] => {
+    const out = [term]
+    const noArticle = term.replace(/^(?:the|a|an)\s+/i, '').trim()
+    if (noArticle && noArticle !== term) out.push(noArticle)
+    const noYear = term
+      .replace(/\s*\((?:19|20)\d{2}\)\s*$/i, '')
+      .replace(/\s+(?:19|20)\d{2}\s*$/i, '')
+      .trim()
+    if (noYear && !out.includes(noYear)) out.push(noYear)
+    const plain = term
       .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-    if (simplified && simplified !== cleaned) results = await run(simplified)
+    if (plain && !out.includes(plain)) out.push(plain)
+    return out.slice(0, 3)
   }
-  return results
+
+  const searchTerm = async (term: string): Promise<TmdbMediaResult[]> => {
+    if (kind) return tagKind(await run(term, kind), kind)
+
+    // /search/multi returns both, but it can rank one adaptation so highly that
+    // the other disappears. If a type is missing entirely, ask that endpoint
+    // directly — this is what surfaces a TV series behind a same-named film.
+    const multi = await run(term, 'multi')
+    const hasMovie = multi.some(r => r.media_type === 'movie')
+    const hasTv = multi.some(r => r.media_type === 'tv')
+    const extra: TmdbMediaResult[] = []
+    if (!hasMovie) extra.push(...tagKind(await run(term, 'movie'), 'movie'))
+    if (!hasTv) extra.push(...tagKind(await run(term, 'series'), 'series'))
+
+    const seen = new Set<string>()
+    const merged: TmdbMediaResult[] = []
+    for (const row of [...multi, ...extra]) {
+      const key = `${row.media_type}-${row.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push(row)
+    }
+    return merged
+  }
+
+  let results: TmdbMediaResult[] = []
+  for (const term of variants(cleaned)) {
+    results = await searchTerm(term)
+    if (results.length) break
+  }
+
+  // Exact and prefix title matches outrank a more popular but vaguely related
+  // result. Case is already folded; TMDB returns title or name by media type.
+  const needle = cleaned.toLowerCase()
+  const rank = (r: TmdbMediaResult): number => {
+    const title = ((r.media_type === 'tv' ? r.name : r.title) ?? '').toLowerCase()
+    if (title === needle) return 0
+    if (title.startsWith(needle)) return 1
+    return 2
+  }
+  return results.sort((a, b) => rank(a) - rank(b) || (b.popularity ?? 0) - (a.popularity ?? 0))
 }
 
 export async function trendingTmdb(): Promise<TmdbMediaResult[]> {
