@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { api } from '../lib/api'
 import { cn } from '../lib/utils'
-import { posterUrl } from '@shared/utils'
+import { posterUrl, backdropUrl, profileUrl } from '@shared/utils'
 import type { SeasonInfo, EpisodeLog } from '@shared/types'
+import EpisodeModal from './EpisodeModal'
 
 interface SeasonGridProps {
   tmdbId: number | null
@@ -12,6 +13,7 @@ interface SeasonGridProps {
   libraryId: number | undefined
   onLogEpisode: (season: number, episode: number) => void
   loggedEpisodes: EpisodeLog[]
+  onPickPerson?: (personId: number) => void
 }
 
 /**
@@ -24,11 +26,14 @@ export default function SeasonGrid({
   seasonsTotal,
   libraryId,
   onLogEpisode,
-  loggedEpisodes
+  loggedEpisodes,
+  onPickPerson
 }: SeasonGridProps) {
   const [season, setSeason] = useState(1)
   const [data, setData] = useState<SeasonInfo | null>(null)
   const [loading, setLoading] = useState(false)
+  const [showExtras, setShowExtras] = useState(false)
+  const [episodeInfo, setEpisodeInfo] = useState<{ episode: number; name: string } | null>(null)
   const initializedFor = useRef<number | null>(null)
 
   // The grid stays mounted while the detail panel swaps between series, so the
@@ -121,6 +126,91 @@ export default function SeasonGrid({
         </div>
       </div>
 
+      {data && (data.cast.length > 0 || data.videos.length > 0 || data.images.length > 0) && (
+        <button
+          onClick={() => setShowExtras(v => !v)}
+          className="mt-3 text-[10.5px] text-ink-dim transition hover:text-gold"
+        >
+          {showExtras ? 'Hide season extras' : 'Season cast, stills & videos'}
+        </button>
+      )}
+
+      {showExtras && data && (data.cast.length > 0 || data.videos.length > 0 || data.images.length > 0) && (
+        <div className="mt-3 space-y-3 rounded-xl border border-line bg-surface-2/60 p-3">
+          {data.images.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {data.images.slice(0, 3).map(img => (
+                <div
+                  key={img.filePath}
+                  className="aspect-video overflow-hidden rounded-lg border border-line/70 bg-surface"
+                >
+                  <img
+                    src={
+                      img.kind === 'poster'
+                        ? posterUrl(img.filePath, 'w185') ?? undefined
+                        : backdropUrl(img.filePath, 'w780') ?? undefined
+                    }
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {data.cast.length > 0 && (
+            <div className="row-scroll flex gap-2.5 overflow-x-auto pb-1">
+              {data.cast.slice(0, 10).map(c => (
+                <button
+                  key={c.personId}
+                  onClick={() => onPickPerson?.(c.personId)}
+                  className="group w-[64px] shrink-0 text-center"
+                >
+                  <div className="mx-auto h-11 w-11 overflow-hidden rounded-full border border-line bg-surface transition group-hover:border-gold/60">
+                    {c.profilePath ? (
+                      <img
+                        src={profileUrl(c.profilePath, 'w185') ?? undefined}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-ink-dim">
+                        {c.name
+                          .split(' ')
+                          .map(w => w[0])
+                          .slice(0, 2)
+                          .join('')}
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-1 truncate text-[9.5px] font-medium text-ink group-hover:text-gold">
+                    {c.name}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {data.videos.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {data.videos.map(v => (
+                <a
+                  key={v.key}
+                  href={`https://www.youtube.com/watch?v=${v.key}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full border border-line bg-surface px-2.5 py-1 text-[10.5px] text-ink-soft transition hover:border-gold/50 hover:text-gold"
+                >
+                  ▶ {v.name}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {nextUp && libraryId !== undefined && (
         <button
           onClick={() => onLogEpisode(nextUp.seasonNumber, nextUp.episodeNumber)}
@@ -161,15 +251,24 @@ export default function SeasonGrid({
           {data.episodes.map((ep, i) => {
             const watched = watchedSet.has(`${ep.seasonNumber}-${ep.episodeNumber}`)
             return (
-              <motion.button
+              <motion.div
                 key={ep.id}
                 initial={{ opacity: 0, x: -6 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.25, delay: Math.min(i * 0.012, 0.3) }}
-                onClick={() => onLogEpisode(ep.seasonNumber, ep.episodeNumber)}
-                disabled={libraryId === undefined}
+                role="button"
+                tabIndex={libraryId === undefined ? -1 : 0}
+                onClick={() => libraryId !== undefined && onLogEpisode(ep.seasonNumber, ep.episodeNumber)}
+                onKeyDown={e => {
+                  if (libraryId === undefined) return
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onLogEpisode(ep.seasonNumber, ep.episodeNumber)
+                  }
+                }}
                 className={cn(
-                  'group flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-55',
+                  'group flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-left transition focus:outline-none focus-visible:border-gold/60',
+                  libraryId === undefined && 'cursor-not-allowed opacity-55',
                   watched
                     ? 'border-emerald/20 bg-emerald/[0.05]'
                     : 'border-line bg-surface/60 hover:border-gold/40'
@@ -215,7 +314,21 @@ export default function SeasonGrid({
                     />
                   </div>
                 )}
-              </motion.button>
+                <button
+                  onClick={e => {
+                    e.stopPropagation()
+                    setEpisodeInfo({ episode: ep.episodeNumber, name: ep.name })
+                  }}
+                  title="Episode credits"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-line text-ink-dim transition hover:border-gold/50 hover:text-gold"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+                    <path d="M12 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <circle cx="12" cy="7.5" r="1.2" fill="currentColor" />
+                  </svg>
+                </button>
+              </motion.div>
             )
           })}
         </div>
@@ -227,6 +340,20 @@ export default function SeasonGrid({
         <p className="mt-3 text-[10.5px] text-ink-dim">
           Add this series to your library to start logging episodes.
         </p>
+      )}
+
+      {episodeInfo && (
+        <EpisodeModal
+          tvId={tmdbId}
+          season={safeSeason}
+          episode={episodeInfo.episode}
+          title={episodeInfo.name}
+          onClose={() => setEpisodeInfo(null)}
+          onPickPerson={id => {
+            setEpisodeInfo(null)
+            onPickPerson?.(id)
+          }}
+        />
       )}
     </div>
   )

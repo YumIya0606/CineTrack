@@ -4,9 +4,10 @@ import { api } from '../lib/api'
 import { useUI, useData } from '../store'
 import { applyDensity } from '../lib/theme'
 import { cn } from '../lib/utils'
-import { formatYear, catalogKey, normalizeSearchQuery } from '@shared/utils'
-import type { CatalogItem } from '@shared/types'
+import { formatYear, catalogKey, normalizeSearchQuery, posterUrl, profileUrl } from '@shared/utils'
+import type { CatalogItem, PersonSearchResult, CollectionSearchResult } from '@shared/types'
 import ProceduralPoster from './ProceduralPoster'
+import { PersonModal, CollectionModal } from './BrowseModals'
 
 const RECENT_KEY = 'cinetrack.recent-searches'
 
@@ -21,6 +22,8 @@ interface PaletteAction {
 type PaletteRow =
   | { kind: 'action'; action: PaletteAction }
   | { kind: 'item'; item: CatalogItem }
+  | { kind: 'person'; person: PersonSearchResult }
+  | { kind: 'collection'; collection: CollectionSearchResult }
 
 export default function CommandPalette() {
   const open = useUI(s => s.commandOpen)
@@ -35,9 +38,13 @@ export default function CommandPalette() {
   const loadStats = useData(s => s.loadStats)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CatalogItem[]>([])
+  const [people, setPeople] = useState<PersonSearchResult[]>([])
+  const [collections, setCollections] = useState<CollectionSearchResult[]>([])
   const [selected, setSelected] = useState(0)
   const [loading, setLoading] = useState(false)
   const [liveError, setLiveError] = useState(false)
+  const [personId, setPersonId] = useState<number | null>(null)
+  const [collectionId, setCollectionId] = useState<number | null>(null)
   const [connected, setConnected] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -59,6 +66,8 @@ export default function CommandPalette() {
         const recent = await loadRecent()
         if (!cancelled) {
           setResults(recent)
+          setPeople([])
+          setCollections([])
           setSelected(0)
           setLiveError(false)
           setLoading(false)
@@ -67,14 +76,20 @@ export default function CommandPalette() {
       }
       try {
         let liveFailed = false
-        const [local, live] = await Promise.all([
+        const [local, live, personHits, collectionHits] = await Promise.all([
           api.catalog.search(q, 12),
           connected
             ? api.tmdb.search(q).catch(() => {
                 liveFailed = true
                 return [] as CatalogItem[]
               })
-            : Promise.resolve([] as CatalogItem[])
+            : Promise.resolve([] as CatalogItem[]),
+          connected
+            ? api.tmdb.searchPeople(q).catch(() => [] as PersonSearchResult[])
+            : Promise.resolve([] as PersonSearchResult[]),
+          connected
+            ? api.tmdb.searchCollections(q).catch(() => [] as CollectionSearchResult[])
+            : Promise.resolve([] as CollectionSearchResult[])
         ])
         // Local rows win; live results fill the rest (deduped by tmdbId + title).
         const seen = new Set<string>()
@@ -87,6 +102,8 @@ export default function CommandPalette() {
         }
         if (!cancelled) {
           setResults(merged.slice(0, 24))
+          setPeople(personHits.slice(0, 4))
+          setCollections(collectionHits.slice(0, 4))
           setSelected(0)
           setLiveError(liveFailed)
         }
@@ -95,6 +112,8 @@ export default function CommandPalette() {
         // failed query left "Searching the catalog…" up forever.
         if (!cancelled) {
           setResults([])
+          setPeople([])
+          setCollections([])
           setLiveError(false)
         }
       } finally {
@@ -172,11 +191,17 @@ export default function CommandPalette() {
   const rows = useMemo<PaletteRow[]>(() => {
     const actionRows = matchingActions.map(a => ({ kind: 'action' as const, action: a }))
     const itemRows = results.map(item => ({ kind: 'item' as const, item }))
-    return q ? [...itemRows, ...actionRows] : [...actionRows, ...itemRows]
-  }, [matchingActions, results, q])
+    const personRows = people.map(person => ({ kind: 'person' as const, person }))
+    const collectionRows = collections.map(collection => ({ kind: 'collection' as const, collection }))
+    return q
+      ? [...itemRows, ...personRows, ...collectionRows, ...actionRows]
+      : [...actionRows, ...itemRows]
+  }, [matchingActions, results, people, collections, q])
 
-  const actionOffset = q ? results.length : 0
   const itemOffset = q ? 0 : matchingActions.length
+  const personOffset = results.length
+  const collectionOffset = personOffset + people.length
+  const actionOffset = q ? collectionOffset + collections.length : 0
 
   const runAction = async (action: PaletteAction) => {
     setOpen(false)
@@ -209,13 +234,21 @@ export default function CommandPalette() {
       e.preventDefault()
       const row = rows[selected]!
       if (row.kind === 'action') runAction(row.action)
-      else handleSelect(row.item)
+      else if (row.kind === 'item') handleSelect(row.item)
+      else if (row.kind === 'person') {
+        setPersonId(row.person.id)
+        setOpen(false)
+      } else {
+        setCollectionId(row.collection.id)
+        setOpen(false)
+      }
     } else if (e.key === 'Escape') {
       setOpen(false)
     }
   }
 
   return (
+    <>
     <AnimatePresence>
       {open && (
         <motion.div
@@ -294,7 +327,7 @@ export default function CommandPalette() {
               {!q && results.length > 0 && <PaletteLabel>Recent</PaletteLabel>}
               {q && results.length > 0 && (
                 <PaletteLabel>
-                  {loading ? 'Best matches so far' : `${results.length} matches`}
+                  {loading ? 'Best titles so far' : `Titles · ${results.length}`}
                 </PaletteLabel>
               )}
               {results.map((item, i) => (
@@ -308,6 +341,40 @@ export default function CommandPalette() {
                 />
               ))}
 
+              {q && people.length > 0 && (
+                <PaletteLabel>People · {people.length}</PaletteLabel>
+              )}
+              {q &&
+                people.map((person, i) => (
+                  <PersonRow
+                    key={person.id}
+                    person={person}
+                    selected={selected === personOffset + i}
+                    onHover={() => setSelected(personOffset + i)}
+                    onOpen={() => {
+                      setPersonId(person.id)
+                      setOpen(false)
+                    }}
+                  />
+                ))}
+
+              {q && collections.length > 0 && (
+                <PaletteLabel>Collections · {collections.length}</PaletteLabel>
+              )}
+              {q &&
+                collections.map((collection, i) => (
+                  <CollectionRow
+                    key={collection.id}
+                    collection={collection}
+                    selected={selected === collectionOffset + i}
+                    onHover={() => setSelected(collectionOffset + i)}
+                    onOpen={() => {
+                      setCollectionId(collection.id)
+                      setOpen(false)
+                    }}
+                  />
+                ))}
+
               {q && !loading && matchingActions.length > 0 && (
                 <PaletteLabel>Actions</PaletteLabel>
               )}
@@ -316,8 +383,8 @@ export default function CommandPalette() {
                   <ActionRow
                     key={action.id}
                     action={action}
-                    selected={selected === results.length + i}
-                    onHover={() => setSelected(results.length + i)}
+                    selected={selected === actionOffset + i}
+                    onHover={() => setSelected(actionOffset + i)}
                     onRun={() => runAction(action)}
                   />
                 ))}
@@ -356,6 +423,29 @@ export default function CommandPalette() {
         </motion.div>
       )}
     </AnimatePresence>
+
+      {personId !== null && (
+        <PersonModal
+          personId={personId}
+          onClose={() => setPersonId(null)}
+          onPick={item => {
+            setPersonId(null)
+            openDetail(item)
+          }}
+        />
+      )}
+
+      {collectionId !== null && (
+        <CollectionModal
+          collectionId={collectionId}
+          onClose={() => setCollectionId(null)}
+          onPick={item => {
+            setCollectionId(null)
+            openDetail(item)
+          }}
+        />
+      )}
+    </>
   )
 }
 
@@ -396,6 +486,103 @@ function ActionRow({
       </div>
       <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-ink-dim">
         Run
+      </span>
+    </div>
+  )
+}
+
+function PersonRow({
+  person,
+  selected,
+  onHover,
+  onOpen
+}: {
+  person: PersonSearchResult
+  selected: boolean
+  onHover: () => void
+  onOpen: () => void
+}) {
+  return (
+    <div
+      className={cn(
+        'flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 transition-colors',
+        selected ? 'bg-surface-3' : 'hover:bg-surface-2'
+      )}
+      onMouseEnter={onHover}
+      onClick={onOpen}
+    >
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-line bg-surface-2">
+        {person.profilePath ? (
+          <img
+            src={profileUrl(person.profilePath, 'w185') ?? undefined}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-ink-dim">
+            {person.name
+              .split(' ')
+              .map(w => w[0])
+              .slice(0, 2)
+              .join('')}
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-ink">{person.name}</div>
+        <div className="truncate text-[11px] text-ink-dim">
+          {person.knownForDepartment ?? 'Person'}
+          {person.knownFor ? ` · ${person.knownFor}` : ''}
+        </div>
+      </div>
+      <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-ink-dim">
+        Person
+      </span>
+    </div>
+  )
+}
+
+function CollectionRow({
+  collection,
+  selected,
+  onHover,
+  onOpen
+}: {
+  collection: CollectionSearchResult
+  selected: boolean
+  onHover: () => void
+  onOpen: () => void
+}) {
+  return (
+    <div
+      className={cn(
+        'flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 transition-colors',
+        selected ? 'bg-surface-3' : 'hover:bg-surface-2'
+      )}
+      onMouseEnter={onHover}
+      onClick={onOpen}
+    >
+      <div className="h-12 w-[34px] shrink-0 overflow-hidden rounded border border-line bg-surface-2">
+        {collection.posterPath ? (
+          <img
+            src={posterUrl(collection.posterPath, 'w185') ?? undefined}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-[15px] text-ink-dim">
+            ▤
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-ink">{collection.name}</div>
+        <div className="text-[11px] text-ink-dim">Collection / franchise</div>
+      </div>
+      <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-ink-dim">
+        Collection
       </span>
     </div>
   )

@@ -5,6 +5,8 @@ import { useUI, useData } from '../store'
 import { cn } from '../lib/utils'
 import PosterCard from '../components/PosterCard'
 import { ChartRows } from '../components/ChartRows'
+import PeopleRail from '../components/PeopleRail'
+import { PersonModal } from '../components/BrowseModals'
 import type { CatalogItem, MediaKind, Genre, DiscoverFilters } from '@shared/types'
 
 const SORTS = [
@@ -40,6 +42,7 @@ const RUNTIMES = [
 
 export default function DiscoverView() {
   const setCommandOpen = useUI(s => s.setCommandOpen)
+  const openDetail = useUI(s => s.openDetail)
   const library = useData(s => s.library)
   const [kind, setKind] = useState<MediaKind>('movie')
   const [genres, setGenres] = useState<Record<MediaKind, Genre[]>>({
@@ -59,6 +62,7 @@ export default function DiscoverView() {
   // pushed a full screen down by suggestions they didn't request.
   const [showCharts, setShowCharts] = useState(true)
   const [chartsExpanded, setChartsExpanded] = useState(false)
+  const [personId, setPersonId] = useState<number | null>(null)
   const [items, setItems] = useState<CatalogItem[]>([])
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -194,6 +198,7 @@ export default function DiscoverView() {
             </button>
           </div>
           <ChartRows kind={kind} expanded={chartsExpanded} />
+          <PeopleRail onPick={setPersonId} />
         </div>
       )}
 
@@ -485,6 +490,17 @@ export default function DiscoverView() {
             </>
           )}
         </div>
+      )}
+
+      {personId !== null && (
+        <PersonModal
+          personId={personId}
+          onClose={() => setPersonId(null)}
+          onPick={item => {
+            setPersonId(null)
+            openDetail(item)
+          }}
+        />
       )}
     </div>
   )

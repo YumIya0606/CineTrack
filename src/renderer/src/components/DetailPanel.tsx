@@ -4,13 +4,21 @@ import { useUI, useData, useCollections, useStatuses } from '../store'
 import { cn } from '../lib/utils'
 import { posterUrl, backdropUrl, profileUrl, formatRuntime, formatYear } from '@shared/utils'
 import { statusColorDot } from '@shared/status'
-import type { WatchStatus, CatalogItem, LiveDetails, WatchProviders, ViewingEntry } from '@shared/types'
+import type {
+  WatchStatus,
+  CatalogItem,
+  LiveDetails,
+  WatchProviders,
+  ViewingEntry,
+  KeywordRef,
+  StudioRef
+} from '@shared/types'
 import ProceduralPoster from './ProceduralPoster'
 import SeasonGrid from './SeasonGrid'
 import TrailerModal from './TrailerModal'
 import WatchModal from './WatchModal'
 import ListPicker from './ListPicker'
-import { PersonModal, CollectionModal } from './BrowseModals'
+import { PersonModal, CollectionModal, KeywordModal, StudioModal } from './BrowseModals'
 import ConfirmDialog from './ConfirmDialog'
 import { api } from '../lib/api'
 
@@ -81,6 +89,8 @@ export default function DetailPanel() {
   const [personId, setPersonId] = useState<number | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [collectionId, setCollectionId] = useState<number | null>(null)
+  const [keyword, setKeyword] = useState<KeywordRef | null>(null)
+  const [studio, setStudio] = useState<StudioRef | null>(null)
   const loadCollections = useCollections(s => s.loadCollections)
   const bumpItems = useCollections(s => s.bumpItems)
   const [containedIn, setContainedIn] = useState<number[]>([])
@@ -585,6 +595,27 @@ const confirmDate = async () => {
                 </p>
               )}
 
+              {live && live.altTitles.length > 0 && (
+                <p className="mt-2 text-[11px] leading-relaxed text-ink-dim">
+                  <span className="font-semibold uppercase tracking-wider">Also known as</span>{' '}
+                  {live.altTitles.slice(0, 3).join(' · ')}
+                </p>
+              )}
+
+              {live && live.keywords.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  {live.keywords.slice(0, 10).map(k => (
+                    <button
+                      key={k.id}
+                      onClick={() => setKeyword(k)}
+                      className="rounded-full border border-line bg-surface px-2.5 py-1 text-[10.5px] text-ink-soft transition hover:border-gold/50 hover:text-gold"
+                    >
+                      #{k.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {live && live.crew.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2 text-xs text-ink-soft">
                   {live.crew.map(c => (
@@ -595,6 +626,33 @@ const confirmDate = async () => {
                     >
                       <span className="text-ink-dim">{c.job}: </span>
                       {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {live && live.studios.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center gap-1.5">
+                  {live.studios.slice(0, 6).map(s => (
+                    <button
+                      key={`${s.kind}-${s.id}`}
+                      onClick={() => setStudio(s)}
+                      className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-[10.5px] text-ink-soft transition hover:border-gold/50 hover:text-gold"
+                      title={s.kind === 'network' ? 'TV network' : 'Production company'}
+                    >
+                      {s.logoPath ? (
+                        <img
+                          src={`https://image.tmdb.org/t/p/w92${s.logoPath}`}
+                          alt=""
+                          loading="lazy"
+                          className="h-4 w-6 rounded-sm object-contain"
+                        />
+                      ) : (
+                        <span className="text-[8px] uppercase tracking-wide text-ink-dim">
+                          {s.kind === 'network' ? 'net' : 'std'}
+                        </span>
+                      )}
+                      {s.name}
                     </button>
                   ))}
                 </div>
@@ -635,6 +693,9 @@ const confirmDate = async () => {
                         {c.character && (
                           <div className="truncate text-[9.5px] text-ink-dim">{c.character}</div>
                         )}
+                        {c.episodes ? (
+                          <div className="text-[9px] text-ink-dim/80">{c.episodes} eps</div>
+                        ) : null}
                       </button>
                     ))}
                   </div>
@@ -826,6 +887,7 @@ const confirmDate = async () => {
                     episodesTotal={live?.episodes ?? null}
                     libraryId={libraryId}
                     onLogEpisode={handleLogEpisodeFromGrid}
+                    onPickPerson={setPersonId}
                     loggedEpisodes={episodes.map(e => ({
                       libraryId: libraryId ?? 0,
                       season: e.season,
@@ -972,6 +1034,29 @@ const confirmDate = async () => {
           onClose={() => setCollectionId(null)}
           onPick={c => {
             setCollectionId(null)
+            openDetail(c)
+          }}
+        />
+      )}
+
+      {keyword !== null && (
+        <KeywordModal
+          keywordId={keyword.id}
+          onClose={() => setKeyword(null)}
+          onPick={c => {
+            setKeyword(null)
+            openDetail(c)
+          }}
+        />
+      )}
+
+      {studio !== null && (
+        <StudioModal
+          studioId={studio.id}
+          studioKind={studio.kind}
+          onClose={() => setStudio(null)}
+          onPick={c => {
+            setStudio(null)
             openDetail(c)
           }}
         />

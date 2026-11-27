@@ -27,7 +27,13 @@ import type {
   BoardResult,
   StatusDef,
   PersonDetails,
-  CollectionDetails
+  CollectionDetails,
+  TrendingPerson,
+  KeywordPage,
+  StudioPage,
+  EpisodeCredits,
+  PersonSearchResult,
+  CollectionSearchResult
 } from '@shared/types'
 
 /** A subtitle release offered for a title. */
@@ -177,8 +183,20 @@ const api = {
     topRated: (kind: MediaKind): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_TOP_RATED, kind),
     nowPlaying: (): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_NOW_PLAYING),
     upcoming: (): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_UPCOMING),
-    onTheAir: (window: 'day' | 'week'): Promise<CatalogItem[]> =>
-      ipcRenderer.invoke(IPC.TMDB_ON_THE_AIR, window),
+    onTheAir: (): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_ON_THE_AIR),
+    airingToday: (): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_AIRING_TODAY),
+    popular: (kind: MediaKind): Promise<CatalogItem[]> => ipcRenderer.invoke(IPC.TMDB_POPULAR, kind),
+    trendingPeople: (window: 'day' | 'week'): Promise<TrendingPerson[]> =>
+      ipcRenderer.invoke(IPC.TMDB_TRENDING_PEOPLE, window),
+    keywordPage: (id: number): Promise<KeywordPage> => ipcRenderer.invoke(IPC.TMDB_KEYWORD_PAGE, id),
+    studioPage: (id: number, kind: 'company' | 'network'): Promise<StudioPage> =>
+      ipcRenderer.invoke(IPC.TMDB_STUDIO_PAGE, id, kind),
+    episodeCredits: (tvId: number, season: number, episode: number): Promise<EpisodeCredits> =>
+      ipcRenderer.invoke(IPC.TMDB_EPISODE_CREDITS, tvId, season, episode),
+    searchPeople: (q: string): Promise<PersonSearchResult[]> =>
+      ipcRenderer.invoke(IPC.TMDB_SEARCH_PEOPLE, q),
+    searchCollections: (q: string): Promise<CollectionSearchResult[]> =>
+      ipcRenderer.invoke(IPC.TMDB_SEARCH_COLLECTIONS, q),
     person: (id: number): Promise<PersonDetails> => ipcRenderer.invoke(IPC.TMDB_PERSON, id),
     collection: (id: number): Promise<CollectionDetails> =>
       ipcRenderer.invoke(IPC.TMDB_COLLECTION, id),

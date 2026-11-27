@@ -106,8 +106,66 @@ export interface TmdbMediaResult {
     cast: TmdbCastMember[]
     crew: TmdbCrewMember[]
   }
+  /** TV only: cast aggregated across every season, not just the latest. */
+  aggregate_credits?: {
+    cast: TmdbAggregateCast[]
+    crew: TmdbAggregateCrew[]
+  }
+  production_companies?: TmdbCompany[]
+  networks?: TmdbNetwork[]
+  keywords?: { keywords?: TmdbKeyword[]; results?: TmdbKeyword[] }
+  alternative_titles?: {
+    titles?: TmdbAlternativeTitle[]
+    results?: TmdbAlternativeTitle[]
+  }
   recommendations?: { results: TmdbMediaResult[] }
   similar?: { results: TmdbMediaResult[] }
+}
+
+export interface TmdbKeyword {
+  id: number
+  name: string
+}
+
+export interface TmdbCompany {
+  id: number
+  name: string
+  logo_path: string | null
+  origin_country?: string | null
+  description?: string | null
+  headquarters?: string | null
+}
+
+export interface TmdbNetwork {
+  id: number
+  name: string
+  logo_path: string | null
+  origin_country?: string | null
+  headquarters?: string | null
+}
+
+export interface TmdbAlternativeTitle {
+  iso_3166_1: string
+  title: string
+  type?: string
+}
+
+export interface TmdbAggregateCast {
+  id: number
+  name: string
+  profile_path: string | null
+  order: number
+  roles?: { character: string | null; episode_count: number }[]
+  total_episode_count: number
+}
+
+export interface TmdbAggregateCrew {
+  id: number
+  name: string
+  profile_path: string | null
+  department: string | null
+  jobs?: { job: string | null; episode_count: number }[]
+  total_episode_count: number
 }
 
 export interface TmdbCastMember {
@@ -247,12 +305,174 @@ export async function trendingTmdb(): Promise<TmdbMediaResult[]> {
 export async function detailsTmdb(tmdbId: number, kind: MediaKind): Promise<TmdbMediaResult> {
   // external_ids rides along on the same request — it's what lets us look up
   // subtitles and cross-reference IMDb without spending another call.
-  const append = 'append_to_response=credits,recommendations,similar,external_ids'
+  // aggregate_credits is TV-only and gives a show's full cast across seasons;
+  // keywords power the clickable keyword pages in the detail panel.
+  const appends = ['credits', 'recommendations', 'similar', 'external_ids', 'keywords', 'alternative_titles']
+  if (kind === 'series') appends.push('aggregate_credits')
+  const append = `append_to_response=${appends.join(',')}`
   const path = kind === 'series' ? `/tv/${tmdbId}` : `/movie/${tmdbId}`
   const data = await tmdbFetch<TmdbMediaResult>(`${path}?${append}`)
   if (kind === 'series') data.media_type = 'tv'
   else data.media_type = 'movie'
   return data
+}
+
+/* ---------- Keyword and studio pages ---------- */
+
+/** Canonical keyword name for a keyword page. */
+export async function keywordTmdb(keywordId: number): Promise<TmdbKeyword> {
+  return tmdbFetch<TmdbKeyword>(`/keyword/${keywordId}`)
+}
+
+/** Titles tagged with a keyword, across both movie and TV catalogs. */
+export async function keywordTitlesTmdb(keywordId: number): Promise<import('@shared/types').CatalogItem[]> {
+  const params = {
+    with_keywords: String(keywordId),
+    sort_by: 'popularity.desc',
+    'vote_count.gte': '10'
+  }
+  const [movies, tv] = await Promise.all([
+    tmdbFetch<TmdbDiscoverPage>('/discover/movie', params),
+    tmdbFetch<TmdbDiscoverPage>('/discover/tv', params)
+  ])
+  const seen = new Set<string>()
+  return [...movies.results, ...tv.results]
+    .filter(r => {
+      const kind = r.media_type === 'tv' || r.name ? 'series' : 'movie'
+      const key = `${kind}-${r.id}`
+      if (!r.title && !r.name) return false
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .map(r => tmdbToCatalog(r, (r.media_type === 'tv' || r.name ? 'series' : 'movie') as MediaKind))
+}
+
+export interface StudioDetails {
+  id: number
+  name: string
+  description: string | null
+  logoPath: string | null
+  headquarters: string | null
+  country: string | null
+  kind: 'company' | 'network'
+}
+
+/** A production company or TV network, normalized for the browse modal. */
+export async function studioTmdb(
+  id: number,
+  kind: 'company' | 'network'
+): Promise<StudioDetails> {
+  const data = await tmdbFetch<TmdbCompany & TmdbNetwork & {
+    description?: string | null
+    headquarters?: string | null
+    origin_country?: string | null
+  }>(kind === 'network' ? `/network/${id}` : `/company/${id}`)
+  return {
+    id: data.id,
+    name: data.name,
+    description: data.description ?? null,
+    logoPath: data.logo_path ?? null,
+    headquarters: data.headquarters ?? null,
+    country: data.origin_country ?? null,
+    kind
+  }
+}
+
+/** Every title associated with a company or network. */
+export async function studioTitlesTmdb(
+  id: number,
+  kind: 'company' | 'network'
+): Promise<import('@shared/types').CatalogItem[]> {
+  const params: Record<string, string> =
+    kind === 'network'
+      ? { with_networks: String(id), sort_by: 'popularity.desc', 'vote_count.gte': '5' }
+      : { with_companies: String(id), sort_by: 'popularity.desc', 'vote_count.gte': '5' }
+  // Networks only exist on TV; a production company can have made both films
+  // and series, so ask both catalogues.
+  const paths = kind === 'network' ? ['/discover/tv'] : ['/discover/movie', '/discover/tv']
+  const pages = await Promise.all(
+    paths.map(path => tmdbFetch<TmdbDiscoverPage>(path, params))
+  )
+  const seen = new Set<string>()
+  return pages
+    .flatMap(page => page.results)
+    .filter(r => {
+      if (!r.title && !r.name) return false
+      const kindKey = r.name ? 'series' : 'movie'
+      const key = `${kindKey}-${r.id}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .map(r => tmdbToCatalog(r, (r.name ? 'series' : 'movie') as MediaKind))
+}
+
+/* ---------- People ---------- */
+
+export interface TrendingPerson {
+  id: number
+  name: string
+  profilePath: string | null
+  knownForDepartment: string | null
+  popularity: number | null
+  knownFor: string | null
+}
+
+/** Actors/creators trending this week, for the Discover people rail. */
+export async function trendingPeopleTmdb(
+  window: 'day' | 'week' = 'week'
+): Promise<TrendingPerson[]> {
+  const data = await tmdbFetch<{ results: (TmdbPerson & { known_for?: { title?: string; name?: string }[] })[] }>(
+    `/trending/person/${window}`
+  )
+  return data.results.map(p => ({
+    id: p.id,
+    name: p.name,
+    profilePath: p.profile_path ?? null,
+    knownForDepartment: p.known_for_department ?? null,
+    popularity: p.popularity ?? null,
+    knownFor:
+      p.known_for?.map(k => k.title ?? k.name).filter(Boolean).slice(0, 2).join(' · ') ?? null
+  }))
+}
+
+/* ---------- Universal search: people and collections ---------- */
+
+/** People matching a query, for the command palette's People section. */
+export async function searchPeopleTmdb(
+  query: string
+): Promise<import('@shared/types').PersonSearchResult[]> {
+  const q = normalizeSearchQuery(query)
+  if (!q) return []
+  const data = await tmdbFetch<{
+    results: (TmdbPerson & { known_for?: { title?: string; name?: string }[] })[]
+  }>('/search/person', { query: q, include_adult: 'false' })
+  return data.results.slice(0, 6).map(p => ({
+    id: p.id,
+    name: p.name,
+    profilePath: p.profile_path ?? null,
+    knownForDepartment: p.known_for_department ?? null,
+    knownFor:
+      p.known_for?.map(k => k.title ?? k.name).filter(Boolean).slice(0, 2).join(' · ') ?? null
+  }))
+}
+
+/** Franchises matching a query, so "Marvel" reaches its collection page. */
+export async function searchCollectionsTmdb(
+  query: string
+): Promise<import('@shared/types').CollectionSearchResult[]> {
+  const q = normalizeSearchQuery(query)
+  if (!q) return []
+  const data = await tmdbFetch<{
+    results: { id: number; name: string; poster_path: string | null; backdrop_path: string | null }[]
+  }>('/search/collection', { query: q, include_adult: 'false' })
+  return data.results.slice(0, 6).map(c => ({
+    id: c.id,
+    name: c.name,
+    posterPath: c.poster_path ?? null,
+    backdropPath: c.backdrop_path ?? null
+  }))
 }
 
 /* ---------- Live enrichment: trailers, providers, episode grids ---------- */
@@ -347,6 +567,7 @@ export interface TmdbEpisode {
 }
 
 export interface TmdbSeasonRaw {
+  id?: number
   season_number: number
   name: string
   overview: string | null
@@ -354,6 +575,18 @@ export interface TmdbSeasonRaw {
   air_date: string | null
   episode_count: number
   episodes: TmdbEpisode[]
+  credits?: { cast: TmdbCastMember[]; crew?: TmdbCrewMember[] }
+  images?: { posters?: TmdbImage[]; backdrops?: TmdbImage[] }
+  videos?: { results?: TmdbVideo[] }
+}
+
+export interface TmdbImage {
+  file_path: string
+  width: number
+  height: number
+  aspect_ratio: number
+  iso_639_1: string | null
+  vote_average: number
 }
 
 /** Normalized season shape handed to the renderer. */
@@ -365,11 +598,16 @@ export interface TmdbSeason {
   airDate: string | null
   episodeCount: number
   episodes: EpisodeInfo[]
+  cast: import('@shared/types').SeasonCastMember[]
+  videos: import('@shared/types').VideoInfo[]
+  images: import('@shared/types').SeasonImage[]
 }
 
 /** Full episode list for a season, used by the season/episode grid. */
 export async function seasonTmdb(tvId: number, seasonNumber: number): Promise<TmdbSeason> {
-  const data = await tmdbFetch<TmdbSeasonRaw>(`/tv/${tvId}/season/${seasonNumber}`)
+  const data = await tmdbFetch<TmdbSeasonRaw>(
+    `/tv/${tvId}/season/${seasonNumber}?append_to_response=credits,images,videos`
+  )
   return {
     seasonNumber: data.season_number,
     name: data.name,
@@ -377,6 +615,27 @@ export async function seasonTmdb(tvId: number, seasonNumber: number): Promise<Tm
     posterPath: data.poster_path,
     airDate: data.air_date,
     episodeCount: data.episode_count ?? (data.episodes ?? []).length,
+    cast: (data.credits?.cast ?? []).slice(0, 12).map(c => ({
+      personId: c.id,
+      name: c.name,
+      character: c.character,
+      profilePath: c.profile_path,
+      episodes: null
+    })),
+    videos: (data.videos?.results ?? [])
+      .filter(v => v.site === 'YouTube')
+      .slice(0, 4)
+      .map(v => ({ key: v.key, name: v.name, site: v.site, type: v.type })),
+    images: [...(data.images?.backdrops ?? []), ...(data.images?.posters ?? [])]
+      .sort((a, b) => b.vote_average - a.vote_average)
+      .slice(0, 6)
+      .map(i => ({
+        filePath: i.file_path,
+        width: i.width,
+        height: i.height,
+        aspectRatio: i.aspect_ratio,
+        kind: (i.height > i.width ? 'poster' : 'backdrop') as 'poster' | 'backdrop'
+      })),
     episodes: (data.episodes ?? []).map(e => ({
       id: e.id,
       episodeNumber: e.episode_number,
@@ -387,6 +646,42 @@ export async function seasonTmdb(tvId: number, seasonNumber: number): Promise<Tm
       airDate: e.air_date,
       runtime: e.runtime,
       voteAverage: e.vote_average
+    }))
+  }
+}
+
+export interface TmdbEpisodeCreditsRaw {
+  id?: number
+  cast?: TmdbCastMember[]
+  crew?: (TmdbCrewMember & { department?: string | null })[]
+  guest_stars?: TmdbCastMember[]
+}
+
+/** Cast, crew, and guest stars for one episode. */
+export async function episodeCreditsTmdb(
+  tvId: number,
+  season: number,
+  episode: number
+): Promise<import('@shared/types').EpisodeCredits> {
+  const data = await tmdbFetch<TmdbEpisodeCreditsRaw>(
+    `/tv/${tvId}/season/${season}/episode/${episode}/credits`
+  )
+  const person = (c: TmdbCastMember, role: 'cast' | 'guest'): import('@shared/types').EpisodeCreditPerson => ({
+    personId: c.id,
+    name: c.name,
+    character: c.character ?? null,
+    profilePath: c.profile_path ?? null,
+    role
+  })
+  return {
+    cast: (data.cast ?? []).slice(0, 20).map(c => person(c, 'cast')),
+    guestStars: (data.guest_stars ?? []).slice(0, 20).map(c => person(c, 'guest')),
+    crew: (data.crew ?? []).slice(0, 12).map(c => ({
+      personId: c.id,
+      name: c.name,
+      job: c.job ?? null,
+      department: c.department ?? null,
+      profilePath: c.profile_path ?? null
     }))
   }
 }
@@ -517,6 +812,14 @@ export async function topRatedTmdb(
   return listOf(`/${kind === 'series' ? 'tv' : 'movie'}/top_rated?page=${page}`, kind)
 }
 
+/** What is hot right now, without the week-long smoothing of /trending. */
+export async function popularTmdb(
+  kind: MediaKind,
+  page = 1
+): Promise<import('@shared/types').CatalogItem[]> {
+  return listOf(`/${kind === 'series' ? 'tv' : 'movie'}/popular?page=${page}`, kind)
+}
+
 /** Currently in cinemas. */
 export async function nowPlayingTmdb(): Promise<import('@shared/types').CatalogItem[]> {
   return listOf('/movie/now_playing', 'movie')
@@ -527,11 +830,17 @@ export async function upcomingTmdb(): Promise<import('@shared/types').CatalogIte
   return listOf('/movie/upcoming', 'movie')
 }
 
-/** Shows airing today / this week. */
-export async function onTheAirTmdb(
-  window: 'day' | 'week'
-): Promise<import('@shared/types').CatalogItem[]> {
-  return listOf(`/tv/${window}`, 'series')
+/**
+ * Shows with an episode in the next seven days. The old implementation asked
+ * for /tv/week, which is not a TMDB endpoint and always returned 404.
+ */
+export async function onTheAirTmdb(): Promise<import('@shared/types').CatalogItem[]> {
+  return listOf('/tv/on_the_air', 'series')
+}
+
+/** Shows with an episode airing today. */
+export async function airingTodayTmdb(): Promise<import('@shared/types').CatalogItem[]> {
+  return listOf('/tv/airing_today', 'series')
 }
 
 /* ---------- People ---------- */

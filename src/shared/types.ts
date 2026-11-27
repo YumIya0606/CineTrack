@@ -200,6 +200,63 @@ export interface LivePerson {
   character: string | null
   job: string | null
   profilePath: string | null
+  /** Series only: episodes this person appears in across the whole run. */
+  episodes?: number | null
+}
+
+/** A TMDB keyword — clickable from a detail panel. */
+export interface KeywordRef {
+  id: number
+  name: string
+}
+
+/** A production company or TV network. */
+export interface StudioRef {
+  id: number
+  name: string
+  logoPath: string | null
+  kind: 'company' | 'network'
+}
+
+export interface TrendingPerson {
+  id: number
+  name: string
+  profilePath: string | null
+  knownForDepartment: string | null
+  popularity: number | null
+  knownFor: string | null
+}
+
+export interface KeywordPage {
+  id: number
+  name: string
+  items: CatalogItem[]
+}
+
+export interface PersonSearchResult {
+  id: number
+  name: string
+  profilePath: string | null
+  knownForDepartment: string | null
+  knownFor: string | null
+}
+
+export interface CollectionSearchResult {
+  id: number
+  name: string
+  posterPath: string | null
+  backdropPath: string | null
+}
+
+export interface StudioPage {
+  id: number
+  name: string
+  description: string | null
+  logoPath: string | null
+  headquarters: string | null
+  country: string | null
+  kind: 'company' | 'network'
+  items: CatalogItem[]
 }
 
 /** A franchise the title belongs to, as returned by TMDB. */
@@ -217,6 +274,12 @@ export interface LiveDetails extends CatalogItem {
   similar: CatalogItem[]
   /** Franchise this title belongs to, when TMDB knows of one. */
   collection: LiveCollectionRef | null
+  /** Keywords for "more like this" browsing. */
+  keywords: KeywordRef[]
+  /** Production companies (and networks for series). */
+  studios: StudioRef[]
+  /** Alternate titles across regions — TMDB's `alternative_titles`. */
+  altTitles: string[]
 }
 
 export interface VideoInfo {
@@ -251,6 +314,22 @@ export interface EpisodeInfo {
   voteAverage: number | null
 }
 
+export interface SeasonCastMember {
+  personId: number
+  name: string
+  character: string | null
+  profilePath: string | null
+  episodes: number | null
+}
+
+export interface SeasonImage {
+  filePath: string
+  width: number
+  height: number
+  aspectRatio: number
+  kind: 'poster' | 'backdrop'
+}
+
 export interface SeasonInfo {
   seasonNumber: number
   name: string
@@ -259,6 +338,29 @@ export interface SeasonInfo {
   airDate: string | null
   episodeCount: number
   episodes: EpisodeInfo[]
+  cast: SeasonCastMember[]
+  videos: VideoInfo[]
+  images: SeasonImage[]
+}
+
+export interface EpisodeCreditPerson {
+  personId: number
+  name: string
+  character: string | null
+  profilePath: string | null
+  role: 'cast' | 'guest'
+}
+
+export interface EpisodeCredits {
+  cast: EpisodeCreditPerson[]
+  guestStars: EpisodeCreditPerson[]
+  crew: {
+    personId: number
+    name: string
+    job: string | null
+    department: string | null
+    profilePath: string | null
+  }[]
 }
 
 export interface ShowStatus {

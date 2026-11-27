@@ -39,6 +39,16 @@ import {
   nowPlayingTmdb,
   upcomingTmdb,
   onTheAirTmdb,
+  airingTodayTmdb,
+  popularTmdb,
+  trendingPeopleTmdb,
+  keywordTmdb,
+  keywordTitlesTmdb,
+  studioTmdb,
+  studioTitlesTmdb,
+  episodeCreditsTmdb,
+  searchPeopleTmdb,
+  searchCollectionsTmdb,
   personTmdb,
   collectionTmdb,
   findByImdbTmdb,
@@ -209,31 +219,65 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.TMDB_DETAILS, async (_e, tmdbId: number, kind: MediaKind) => {
     const d = await detailsTmdb(tmdbId, kind)
     const base = tmdbToCatalog(d, kind)
+    const aggregate = d.aggregate_credits
+    const aggregateCast =
+      kind === 'series' && aggregate?.cast?.length
+        ? aggregate.cast
+            .slice()
+            .sort((a, b) => a.order - b.order)
+            .slice(0, 14)
+            .map(c => ({
+              personId: c.id,
+              name: c.name,
+              character: c.roles?.[0]?.character ?? null,
+              job: null,
+              profilePath: c.profile_path,
+              episodes: c.total_episode_count
+            }))
+        : null
+    const aggregateCrew =
+      kind === 'series' && aggregate?.crew?.length
+        ? aggregate.crew
+            .filter(c => c.jobs?.some(j => j.job === 'Creator' || j.job === 'Director' || j.job === 'Writer'))
+            .slice(0, 6)
+            .map(c => ({
+              personId: c.id,
+              name: c.name,
+              character: null,
+              job: c.jobs?.find(j => j.job === 'Creator')?.job ?? c.jobs?.[0]?.job ?? c.department,
+              profilePath: c.profile_path
+            }))
+        : null
     const detail: LiveDetails = {
       ...base,
       tagline: d.tagline ?? null,
       seasons: d.number_of_seasons ?? null,
       episodes: d.number_of_episodes ?? null,
-      cast: (d.credits?.cast ?? [])
-        .sort((a, b) => a.order - b.order)
-        .slice(0, 14)
-        .map(c => ({
-          personId: c.id,
-          name: c.name,
-          character: c.character,
-          job: null,
-          profilePath: c.profile_path
-        })),
-      crew: (d.credits?.crew ?? [])
-        .filter(c => c.job === 'Director' || c.job === 'Creator' || c.job === 'Writer')
-        .slice(0, 6)
-        .map(c => ({
-          personId: c.id,
-          name: c.name,
-          character: null,
-          job: c.job,
-          profilePath: c.profile_path
-        })),
+      cast:
+        aggregateCast ??
+        (d.credits?.cast ?? [])
+          .sort((a, b) => a.order - b.order)
+          .slice(0, 14)
+          .map(c => ({
+            personId: c.id,
+            name: c.name,
+            character: c.character,
+            job: null,
+            profilePath: c.profile_path
+          })),
+      crew:
+        aggregateCrew && aggregateCrew.length > 0
+          ? aggregateCrew
+          : (d.credits?.crew ?? [])
+          .filter(c => c.job === 'Director' || c.job === 'Creator' || c.job === 'Writer')
+          .slice(0, 6)
+          .map(c => ({
+            personId: c.id,
+            name: c.name,
+            character: null,
+            job: c.job,
+            profilePath: c.profile_path
+          })),
       similar: (d.recommendations?.results?.length ? d.recommendations.results : d.similar?.results ?? [])
         .slice(0, 10)
         .map(r =>
@@ -243,7 +287,32 @@ export function registerIpcHandlers(): void {
       // people actually consume series: one film at a time, in order.
       collection: d.belongs_to_collection
         ? { id: d.belongs_to_collection.id, name: d.belongs_to_collection.name }
-        : null
+        : null,
+      keywords: (d.keywords?.keywords ?? d.keywords?.results ?? []).map(k => ({
+        id: k.id,
+        name: k.name
+      })),
+      studios: [
+        ...(d.production_companies ?? []).map(c => ({
+          id: c.id,
+          name: c.name,
+          logoPath: c.logo_path ?? null,
+          kind: 'company' as const
+        })),
+        ...(d.networks ?? []).map(n => ({
+          id: n.id,
+          name: n.name,
+          logoPath: n.logo_path ?? null,
+          kind: 'network' as const
+        }))
+      ],
+      altTitles: Array.from(
+        new Set(
+          (d.alternative_titles?.titles ?? d.alternative_titles?.results ?? [])
+            .map(t => t.title)
+            .filter(t => t && t !== (kind === 'series' ? d.name : d.title))
+        )
+      ).slice(0, 6)
     }
     return detail
   })
@@ -295,7 +364,27 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.TMDB_TOP_RATED, async (_e, kind: MediaKind) => topRatedTmdb(kind))
   ipcMain.handle(IPC.TMDB_NOW_PLAYING, async () => nowPlayingTmdb())
   ipcMain.handle(IPC.TMDB_UPCOMING, async () => upcomingTmdb())
-  ipcMain.handle(IPC.TMDB_ON_THE_AIR, async (_e, window: 'day' | 'week') => onTheAirTmdb(window))
+  ipcMain.handle(IPC.TMDB_ON_THE_AIR, async () => onTheAirTmdb())
+  ipcMain.handle(IPC.TMDB_AIRING_TODAY, async () => airingTodayTmdb())
+  ipcMain.handle(IPC.TMDB_POPULAR, async (_e, kind: MediaKind) => popularTmdb(kind))
+  ipcMain.handle(IPC.TMDB_TRENDING_PEOPLE, async (_e, window: 'day' | 'week') =>
+    trendingPeopleTmdb(window)
+  )
+  ipcMain.handle(IPC.TMDB_KEYWORD_PAGE, async (_e, id: number) => {
+    const [keyword, items] = await Promise.all([keywordTmdb(id), keywordTitlesTmdb(id)])
+    return { id: keyword.id, name: keyword.name, items }
+  })
+  ipcMain.handle(IPC.TMDB_STUDIO_PAGE, async (_e, id: number, kind: 'company' | 'network') => {
+    const [studio, items] = await Promise.all([studioTmdb(id, kind), studioTitlesTmdb(id, kind)])
+    return { ...studio, items }
+  })
+  ipcMain.handle(
+    IPC.TMDB_EPISODE_CREDITS,
+    async (_e, tvId: number, season: number, episode: number) =>
+      episodeCreditsTmdb(tvId, season, episode)
+  )
+  ipcMain.handle(IPC.TMDB_SEARCH_PEOPLE, async (_e, q: string) => searchPeopleTmdb(q))
+  ipcMain.handle(IPC.TMDB_SEARCH_COLLECTIONS, async (_e, q: string) => searchCollectionsTmdb(q))
   ipcMain.handle(IPC.TMDB_PERSON, async (_e, id: number) => {
     const p = await personTmdb(id)
     return {

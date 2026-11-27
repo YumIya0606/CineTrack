@@ -23,6 +23,7 @@ interface ChartDef {
 
 const MOVIE_CHARTS: ChartDef[] = [
   { id: 'trending', title: 'Trending this week', hint: 'What everyone is watching right now', load: () => api.tmdb.trendingBy('movie', 'week') },
+  { id: 'popular', title: 'Popular now', hint: 'The films people are watching today', load: () => api.tmdb.popular('movie') },
   { id: 'top', title: 'Top rated', hint: 'The highest-rated films on TMDB', load: () => api.tmdb.topRated('movie') },
   { id: 'playing', title: 'In theatres', hint: 'Playing now', load: () => api.tmdb.nowPlaying() },
   { id: 'soon', title: 'Coming soon', hint: 'Heading to a screen near you', load: () => api.tmdb.upcoming() }
@@ -30,8 +31,10 @@ const MOVIE_CHARTS: ChartDef[] = [
 
 const SERIES_CHARTS: ChartDef[] = [
   { id: 'trending', title: 'Trending this week', hint: 'What everyone is watching right now', load: () => api.tmdb.trendingBy('tv', 'week') },
+  { id: 'popular', title: 'Popular now', hint: 'The shows people are watching today', load: () => api.tmdb.popular('series') },
   { id: 'top', title: 'Top rated', hint: 'The highest-rated shows on TMDB', load: () => api.tmdb.topRated('series') },
-  { id: 'airing', title: 'Airing this week', hint: 'New episodes in the next seven days', load: () => api.tmdb.onTheAir('week') }
+  { id: 'airing', title: 'Airing this week', hint: 'New episodes in the next seven days', load: () => api.tmdb.onTheAir() },
+  { id: 'today', title: 'Airing today', hint: 'Episodes that land today', load: () => api.tmdb.airingToday() }
 ]
 
 function ChartRow({ def }: { def: ChartDef }) {

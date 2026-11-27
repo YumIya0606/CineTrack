@@ -25,7 +25,13 @@ import type {
   BoardResult,
   StatusDef,
   PersonDetails,
-  CollectionDetails
+  CollectionDetails,
+  TrendingPerson,
+  KeywordPage,
+  StudioPage,
+  EpisodeCredits,
+  PersonSearchResult,
+  CollectionSearchResult
 } from '@shared/types'
 
 /** A subtitle release offered for a title. */
@@ -163,7 +169,15 @@ export interface CineTrackApi {
     topRated: (kind: MediaKind) => Promise<CatalogItem[]>
     nowPlaying: () => Promise<CatalogItem[]>
     upcoming: () => Promise<CatalogItem[]>
-    onTheAir: (window: 'day' | 'week') => Promise<CatalogItem[]>
+    onTheAir: () => Promise<CatalogItem[]>
+    airingToday: () => Promise<CatalogItem[]>
+    popular: (kind: MediaKind) => Promise<CatalogItem[]>
+    trendingPeople: (window: 'day' | 'week') => Promise<TrendingPerson[]>
+    keywordPage: (id: number) => Promise<KeywordPage>
+    studioPage: (id: number, kind: 'company' | 'network') => Promise<StudioPage>
+    episodeCredits: (tvId: number, season: number, episode: number) => Promise<EpisodeCredits>
+    searchPeople: (q: string) => Promise<PersonSearchResult[]>
+    searchCollections: (q: string) => Promise<CollectionSearchResult[]>
     person: (id: number) => Promise<PersonDetails>
     collection: (id: number) => Promise<CollectionDetails>
     findImdb: (imdbId: string) => Promise<{ movieId: number | null; tvId: number | null }>

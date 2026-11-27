@@ -242,3 +242,229 @@ export function CollectionModal({
     </div>
   )
 }
+/**
+ * A keyword page. TMDB keywords are the closest thing to a mood/theme shelf,
+ * so each chip on a detail panel becomes a browsable list of both films and
+ * series. Name and titles arrive together from one IPC call.
+ */
+export function KeywordModal({
+  keywordId,
+  onClose,
+  onPick
+}: {
+  keywordId: number
+  onClose: () => void
+  onPick: (item: CatalogItem) => void
+}) {
+  const [page, setPage] = useState<{ id: number; name: string; items: CatalogItem[] } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.tmdb
+      .keywordPage(keywordId)
+      .then(p => !cancelled && setPage(p))
+      .catch(() => !cancelled && setError('Could not load this keyword.'))
+    return () => {
+      cancelled = true
+    }
+  }, [keywordId])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <BrowseModalShell onClose={onClose} wide>
+      {error ? (
+        <p className="py-10 text-center text-sm text-ink-dim">{error}</p>
+      ) : !page ? (
+        <BrowseLoading />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-full border border-gold/40 bg-gold/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gold">
+              Keyword
+            </span>
+            <h2 className="font-display text-2xl font-bold text-ink">{page.name}</h2>
+            <span className="text-xs text-ink-dim">
+              {page.items.length} {page.items.length === 1 ? 'title' : 'titles'}
+            </span>
+          </div>
+          <p className="mt-1.5 text-xs text-ink-dim">
+            Movies and series tagged with this theme on TMDB.
+          </p>
+
+          {page.items.length > 0 ? (
+            <div className="mt-6 grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-6">
+              {page.items.slice(0, 36).map((item, i) => (
+                <PosterCard
+                  key={`${item.tmdbId ?? item.id}-${i}`}
+                  item={item}
+                  index={i}
+                  onClick={() => onPick(item)}
+                  className="w-full"
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="py-10 text-center text-sm text-ink-dim">
+              No titles tagged with this keyword yet.
+            </p>
+          )}
+        </>
+      )}
+    </BrowseModalShell>
+  )
+}
+
+/**
+ * A production company or TV network page. Both use the same shell because a
+ * studio is just a name, a logo and a filmography; the discover parameter is
+ * the only thing that differs.
+ */
+export function StudioModal({
+  studioId,
+  studioKind,
+  onClose,
+  onPick
+}: {
+  studioId: number
+  studioKind: 'company' | 'network'
+  onClose: () => void
+  onPick: (item: CatalogItem) => void
+}) {
+  const [page, setPage] = useState<{
+    id: number
+    name: string
+    description: string | null
+    logoPath: string | null
+    headquarters: string | null
+    country: string | null
+    kind: 'company' | 'network'
+    items: CatalogItem[]
+  } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.tmdb
+      .studioPage(studioId, studioKind)
+      .then(p => !cancelled && setPage(p))
+      .catch(() => !cancelled && setError('Could not load this studio.'))
+    return () => {
+      cancelled = true
+    }
+  }, [studioId, studioKind])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <BrowseModalShell onClose={onClose} wide>
+      {error ? (
+        <p className="py-10 text-center text-sm text-ink-dim">{error}</p>
+      ) : !page ? (
+        <BrowseLoading />
+      ) : (
+        <>
+          <div className="flex items-start gap-4">
+            {page.logoPath && (
+              <div className="flex h-16 w-28 shrink-0 items-center justify-center rounded-xl border border-line bg-surface p-2">
+                <img
+                  src={`https://image.tmdb.org/t/p/w185${page.logoPath}`}
+                  alt=""
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+            )}
+            <div className="min-w-0">
+              <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-ink-dim">
+                {page.kind === 'network' ? 'Network' : 'Studio'}
+              </span>
+              <h2 className="mt-1 font-display text-2xl font-bold text-ink">{page.name}</h2>
+              {(page.headquarters || page.country) && (
+                <p className="mt-1 text-xs text-ink-dim">
+                  {[page.headquarters, page.country].filter(Boolean).join(' · ')}
+                </p>
+              )}
+            </div>
+          </div>
+          {page.description && (
+            <p className="mt-4 max-h-28 overflow-y-auto text-sm leading-relaxed text-ink-soft">
+              {page.description}
+            </p>
+          )}
+
+          {page.items.length > 0 ? (
+            <div className="mt-6 grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-6">
+              {page.items.slice(0, 36).map((item, i) => (
+                <PosterCard
+                  key={`${item.tmdbId ?? item.id}-${i}`}
+                  item={item}
+                  index={i}
+                  onClick={() => onPick(item)}
+                  className="w-full"
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="py-10 text-center text-sm text-ink-dim">
+              No titles found for this {page.kind}.
+            </p>
+          )}
+        </>
+      )}
+    </BrowseModalShell>
+  )
+}
+
+/** Shared modal chrome so keyword/studio pages read like the rest of the app. */
+function BrowseModalShell({
+  children,
+  onClose,
+  wide = false
+}: {
+  children: React.ReactNode
+  onClose: () => void
+  wide?: boolean
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-8 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.22 }}
+        onClick={e => e.stopPropagation()}
+        className={cn(
+          'relative my-auto w-full rounded-2xl border border-line bg-surface-2 p-7 shadow-2xl',
+          wide ? 'max-w-5xl' : 'max-w-3xl'
+        )}
+      >
+        {children}
+        <button
+          onClick={onClose}
+          className="absolute right-5 top-5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft transition hover:border-gold/50 hover:text-gold"
+        >
+          Close
+        </button>
+      </motion.div>
+    </div>
+  )
+}
+
+function BrowseLoading() {
+  return (
+    <div className="flex justify-center py-16">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-line border-t-gold" />
+    </div>
+  )
+}
