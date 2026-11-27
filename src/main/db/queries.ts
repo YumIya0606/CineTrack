@@ -3,6 +3,7 @@ import { catalog, library, episodeLog, settings } from './schema'
 import { eq, desc, asc, sql, and, inArray, isNull } from 'drizzle-orm'
 import { resolveStatus } from '@shared/status'
 import { derivableStatusKeys, watchTimeStatusKeys } from './statuses'
+import { normalizeSearchQuery, searchTokens } from '@shared/utils'
 import type {
   CatalogItem,
   LibraryItem,
@@ -57,7 +58,7 @@ function rowToLibrary(row: {
 /* ---------- Catalog ---------- */
 
 export function searchCatalog(query: string, limit = 24): CatalogItem[] {
-  const q = query.trim()
+  const q = normalizeSearchQuery(query)
   const db = getDb()
   if (!q) {
     return db
@@ -69,12 +70,31 @@ export function searchCatalog(query: string, limit = 24): CatalogItem[] {
       .map(rowToCatalog)
   }
 
+  // Tokenise before building MATCH. Raw user input like "Spider-Man" or
+  // "Schindler's List" contains FTS operators/quotes that either throw or
+  // silently match the wrong thing; quoting each token makes any title safe
+  // while keeping prefix search ("sev" -> Severance).
+  const tokens = searchTokens(q)
+  if (!tokens.length) {
+    // A one-letter title ("V", "M") or a punctuation-only paste still deserves
+    // a real lookup rather than the whole popular catalog.
+    const rawLike = `%${q.replace(/[%_]/g, '')}%`
+    return getRaw()
+      .prepare(`
+        SELECT * FROM catalog
+        WHERE title LIKE ? COLLATE NOCASE OR COALESCE(original_title, '') LIKE ? COLLATE NOCASE
+        ORDER BY popularity DESC
+        LIMIT ?
+      `)
+      .all(rawLike, rawLike, limit) as CatalogItem[]
+  }
+
   // Prefer FTS5 for prefix/prefix-token matching; fall back to LIKE for short
   // queries. Better-sqlite3 binds numbered (?1/?2) parameters by NAME, so the
   // values must be passed as {1: term, 2: limit} — passing them positionally
   // threw a RangeError on every search, which the catch below swallowed, so
   // the index was never used and every keystroke scanned the whole table.
-  const term = q.endsWith('*') ? q : `${q}*`
+  const term = tokens.map(t => `"${t}"*`).join(' ')
   try {
     const fts = getRaw().prepare(`
       SELECT c.* FROM catalog_fts f
@@ -89,15 +109,29 @@ export function searchCatalog(query: string, limit = 24): CatalogItem[] {
     /* index missing or the query is malformed — fall through to LIKE */
   }
 
-  const like = `%${q.replace(/[%_]/g, '')}%`
-  return db
-    .select()
-    .from(catalog)
-    .where(sql`lower(${catalog.title}) LIKE lower(${like})`)
-    .orderBy(desc(catalog.popularity))
-    .limit(limit)
-    .all()
-    .map(rowToCatalog)
+  // Fallback: every token must appear in the title or the original title, in
+  // any order. The old single-substring LIKE made "bear the" fail and made a
+  // title they knew was in their library look missing.
+  const clauses = tokens
+    .map(() => `(c.title LIKE ? COLLATE NOCASE OR COALESCE(c.original_title, '') LIKE ? COLLATE NOCASE)`)
+    .join(' AND ')
+  const likeParams = tokens.flatMap(t => [`%${t}%`, `%${t}%`])
+  const rows = getRaw()
+    .prepare(`
+      SELECT c.* FROM catalog c
+      WHERE ${clauses}
+      ORDER BY
+        CASE
+          WHEN c.title = ? COLLATE NOCASE THEN 0
+          WHEN c.title LIKE ? COLLATE NOCASE THEN 1
+          WHEN COALESCE(c.original_title, '') = ? COLLATE NOCASE THEN 2
+          ELSE 3
+        END,
+        c.popularity DESC
+      LIMIT ?
+    `)
+    .all(...likeParams, q, `${q}%`, q, limit) as (typeof catalog.$inferSelect)[]
+  return rows.map(rowToCatalog)
 }
 
 export function getCatalogItem(id: number): CatalogItem | null {

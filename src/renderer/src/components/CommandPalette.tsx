@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import { useUI, useData } from '../store'
 import { applyDensity } from '../lib/theme'
 import { cn } from '../lib/utils'
-import { formatYear, catalogKey } from '@shared/utils'
+import { formatYear, catalogKey, normalizeSearchQuery } from '@shared/utils'
 import type { CatalogItem } from '@shared/types'
 import ProceduralPoster from './ProceduralPoster'
 
@@ -37,6 +37,7 @@ export default function CommandPalette() {
   const [results, setResults] = useState<CatalogItem[]>([])
   const [selected, setSelected] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [liveError, setLiveError] = useState(false)
   const [connected, setConnected] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -53,20 +54,27 @@ export default function CommandPalette() {
     let cancelled = false
     setLoading(true)
     const t = setTimeout(async () => {
-      const q = query.trim()
+      const q = normalizeSearchQuery(query)
       if (!q) {
         const recent = await loadRecent()
         if (!cancelled) {
           setResults(recent)
           setSelected(0)
+          setLiveError(false)
           setLoading(false)
         }
         return
       }
       try {
+        let liveFailed = false
         const [local, live] = await Promise.all([
           api.catalog.search(q, 12),
-          connected ? api.tmdb.search(q).catch(() => [] as CatalogItem[]) : Promise.resolve([])
+          connected
+            ? api.tmdb.search(q).catch(() => {
+                liveFailed = true
+                return [] as CatalogItem[]
+              })
+            : Promise.resolve([] as CatalogItem[])
         ])
         // Local rows win; live results fill the rest (deduped by tmdbId + title).
         const seen = new Set<string>()
@@ -80,11 +88,15 @@ export default function CommandPalette() {
         if (!cancelled) {
           setResults(merged.slice(0, 24))
           setSelected(0)
+          setLiveError(liveFailed)
         }
       } catch {
         // Without this the spinner cleared only on the success path, so one
         // failed query left "Searching the catalog…" up forever.
-        if (!cancelled) setResults([])
+        if (!cancelled) {
+          setResults([])
+          setLiveError(false)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -145,7 +157,7 @@ export default function CommandPalette() {
     ]
   }, [setView, setBulkOpen, setSettingsOpen, setShortcutsOpen, loadLibrary, loadStats])
 
-  const q = query.trim().toLowerCase()
+  const q = normalizeSearchQuery(query).toLowerCase()
   const matchingActions = useMemo(
     () =>
       q
@@ -258,6 +270,13 @@ export default function CommandPalette() {
                 </div>
               )}
 
+              {q && !loading && liveError && (
+                <div className="mx-2 mb-1 rounded-lg border border-crimson/30 bg-crimson/10 px-3 py-2 text-[11px] leading-relaxed text-crimson">
+                  Live TMDB search failed — showing matches from your local catalog only. Check your
+                  connection or API key in Settings.
+                </div>
+              )}
+
               {!q && (
                 <PaletteLabel>Quick actions</PaletteLabel>
               )}
@@ -310,9 +329,11 @@ export default function CommandPalette() {
               )}
               {q && !loading && rows.length === 0 && (
                 <div className="px-3 py-6 text-center text-sm text-ink-dim">
-                  {connected
-                    ? 'No matches found. Try a different spelling or title.'
-                    : 'No matches in the bundled catalog. Add a TMDB key in Settings for the full live catalog.'}
+                  {liveError
+                    ? 'TMDB could not be reached, and nothing in your local catalog matches. Check your connection, then try again.'
+                    : connected
+                      ? 'No matches found. Try a different spelling or title.'
+                      : 'No local matches. Add a TMDB key in Settings to search the full live catalog.'}
                 </div>
               )}
             </div>

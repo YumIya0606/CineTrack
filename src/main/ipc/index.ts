@@ -191,7 +191,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.TMDB_SEARCH, async (_e, q: string, kind?: MediaKind) => {
     if (!getTmdbConfig().connected) return []
     const results = await searchTmdb(q, kind)
-    return results.map(r => tmdbToCatalog(r, (r.media_type === 'tv' ? 'series' : 'movie') as MediaKind))
+    // /search/movie and /search/tv responses omit media_type entirely. Falling
+    // back to that missing field classified every series search as a movie.
+    return results.map(r =>
+      tmdbToCatalog(r, kind ?? ((r.media_type === 'tv' ? 'series' : 'movie') as MediaKind))
+    )
   })
 
   ipcMain.handle(IPC.TMDB_TRENDING, async () => {

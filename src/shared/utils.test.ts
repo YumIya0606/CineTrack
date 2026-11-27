@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { catalogKey, parseTitleLines, distributeWatchedDate, hashString } from './utils'
+import {
+  catalogKey,
+  parseTitleLines,
+  distributeWatchedDate,
+  hashString,
+  normalizeSearchQuery,
+  searchTokens
+} from './utils'
 
 describe('catalogKey', () => {
   it('uniquely keys live TMDB rows, which all share id 0', () => {
@@ -116,5 +123,23 @@ describe('hashString', () => {
 
   it('is stable across calls', () => {
     expect(hashString('CineTrack')).toBe(hashString('CineTrack'))
+  })
+})
+
+
+describe('search normalisation', () => {
+  it('strips invisible paste characters and collapses whitespace', () => {
+    expect(normalizeSearchQuery('  The\u200B Bear \n')).toBe('The Bear')
+    expect(normalizeSearchQuery('Spider-Man: No Way Home﻿')).toBe(
+      'Spider-Man: No Way Home'
+    )
+  })
+
+  it('tokenises case, accents, and punctuation the same way FTS does', () => {
+    expect(searchTokens('Spider-Man')).toEqual(['spider', 'man'])
+    expect(searchTokens('Amélie')).toEqual(['amelie'])
+    expect(searchTokens("Schindler's List")).toEqual(['schindler', 'list'])
+    expect(searchTokens('  THE   BEAR  ')).toEqual(['the', 'bear'])
+    expect(searchTokens('—')).toEqual([])
   })
 })

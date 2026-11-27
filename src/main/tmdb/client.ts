@@ -1,4 +1,5 @@
 import { getSetting } from '../db/queries'
+import { normalizeSearchQuery } from '@shared/utils'
 import type { tmdbConfig, MediaKind, EpisodeInfo } from '@shared/types'
 
 const API_BASE = 'https://api.themoviedb.org/3'
@@ -161,14 +162,34 @@ export function tmdbToCatalog(
 /* ---------- Endpoints used by the app ---------- */
 
 export async function searchTmdb(query: string, kind?: MediaKind): Promise<TmdbMediaResult[]> {
-  const params: Record<string, string> = { query, include_adult: 'false' }
-  const data =
-    kind === 'movie'
-      ? await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/movie', params)
-      : kind === 'series'
-        ? await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/tv', params)
-        : await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/multi', params)
-  return data.results.filter(r => r.media_type !== 'person' && (r.title || r.name))
+  const cleaned = normalizeSearchQuery(query)
+  if (!cleaned) return []
+
+  const run = async (term: string): Promise<TmdbMediaResult[]> => {
+    const params: Record<string, string> = { query: term, include_adult: 'false' }
+    const data =
+      kind === 'movie'
+        ? await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/movie', params)
+        : kind === 'series'
+          ? await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/tv', params)
+          : await tmdbFetch<{ results: TmdbMediaResult[] }>('/search/multi', params)
+    return data.results.filter(r => r.media_type !== 'person' && (r.title || r.name))
+  }
+
+  let results = await run(cleaned)
+  // One forgiving retry: pasted titles often arrive as "Dune (2021)" or
+  // "Spider-Man: No Way Home —" and TMDB's matcher is strict about trailing
+  // punctuation even though it ignores case. Only fires when the first attempt
+  // genuinely found nothing.
+  if (!results.length) {
+    const simplified = cleaned
+      .replace(/\((?:19|20)\d{2}\)/g, ' ')
+      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (simplified && simplified !== cleaned) results = await run(simplified)
+  }
+  return results
 }
 
 export async function trendingTmdb(): Promise<TmdbMediaResult[]> {

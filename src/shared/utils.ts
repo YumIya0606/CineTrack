@@ -247,3 +247,37 @@ export function parseTitleLines(input: string): ParsedTitleLine[] {
     })
     .filter((v): v is ParsedTitleLine => v !== null)
 }
+
+/**
+ * A search box should not care how a title was pasted. Normalising here strips
+ * invisible characters that ride along with copied text (zero-width spaces,
+ * BOMs), collapses whitespace, and removes control characters. Case folding is
+ * deliberately left to each provider — SQLite and TMDB both do their own.
+ */
+export function normalizeSearchQuery(raw: string): string {
+  return (typeof raw === 'string' ? raw : '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // eslint-disable-next-line no-control-regex -- control characters arrive with pasted text
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Tokenises a search query the way FTS5 does: case-folded, accent-stripped,
+ * punctuation treated as a separator. "Spider-Man" becomes ["spider","man"],
+ * so neither a hyphen nor a stray apostrophe can turn a valid title into an
+ * empty result.
+ */
+export function searchTokens(raw: string): string[] {
+  return normalizeSearchQuery(raw)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    // Apostrophes split contractions into stray one-letter tokens ("Schindler's"
+    // -> schindler, s). Requiring those made a correctly spelled title miss.
+    .filter(t => t.length > 1)
+}
